@@ -13,7 +13,6 @@ using System.Linq;
 using System.Threading;
 using PdfSharp.Pdf;
 using PdfSharp.Pdf.IO;
-using PdfSharp.Drawing;
 using Microsoft.Win32;
 using System.Text.Json;
 using System.Collections.Generic;
@@ -1197,7 +1196,18 @@ GitHub: {AppInfo.GitHubUrl}",
             }
             catch
             {
-                return false;
+                // Se PdfSharp fallisce, prova una validazione semplice
+                try
+                {
+                    var fileBytes = File.ReadAllBytes(filePath);
+                    return fileBytes.Length > 100 && 
+                           fileBytes[0] == 0x25 && fileBytes[1] == 0x50 && 
+                           fileBytes[2] == 0x44 && fileBytes[3] == 0x46; // "%PDF"
+                }
+                catch
+                {
+                    return false;
+                }
             }
         }
 
