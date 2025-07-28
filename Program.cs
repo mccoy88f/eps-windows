@@ -8,6 +8,7 @@ using System.Windows.Forms;
 using MailKit.Net.Imap;
 using MailKit.Net.Smtp;
 using MailKit;
+using MailKit.Search;
 using MimeKit;
 using System.Linq;
 using System.Threading;
@@ -1189,7 +1190,7 @@ GitHub: {AppInfo.GitHubUrl}",
         {
             try
             {
-                using (var document = PdfReader.Open(filePath, PdfDocumentOpenMode.ReadOnly))
+                using (var document = PdfReader.Open(filePath, PdfDocumentOpenMode.Import))
                 {
                     return document.PageCount > 0;
                 }
