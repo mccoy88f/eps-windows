@@ -32,6 +32,15 @@ namespace EmailPrintService
         public const string Copyright = "© 2025 Antonello Migliorelli";
         public const string Description = "Professional Windows service for automatic PDF printing from email attachments";
     }
+
+    // Classe per informazioni sui file PDF
+    public class PdfFileInfo
+    {
+        public string FileName { get; set; } = "";
+        public long FileSizeBytes { get; set; }
+        public MimePart Attachment { get; set; }
+    }
+
     // Classe per le impostazioni usando System.Text.Json
     public class AppSettings
     {
@@ -115,7 +124,7 @@ namespace EmailPrintService
         public bool ColorPrinting { get; set; } = false;
         public bool FitToPage { get; set; } = true;
         public PrintMethod PreferredMethod { get; set; } = PrintMethod.Auto;
-        public PrintConfirmationMode ConfirmationMode { get; set; } = PrintConfirmationMode.Automatic; // Nuovo!
+        public PrintConfirmationMode ConfirmationMode { get; set; } = PrintConfirmationMode.Automatic;
         public int ConfirmationTimeout { get; set; } = 15; // Secondi per il timeout
         public string PrinterSettingsData { get; set; } = ""; // Dati serializzati completi
 
@@ -154,6 +163,75 @@ namespace EmailPrintService
         }
     }
 
+    // Dialog placeholder classes (da implementare)
+    public partial class PdfDetailDialog : Form
+    {
+        public List<PdfFileInfo> SelectedFiles { get; private set; } = new List<PdfFileInfo>();
+
+        public PdfDetailDialog(List<PdfFileInfo> fileInfos, string sender, string senderEmail, string subject, bool hasTimeout, int timeoutSeconds)
+        {
+            InitializeComponent();
+            // TODO: Implementare il dialog
+            SelectedFiles = fileInfos; // Per ora seleziona tutti
+        }
+
+        private void InitializeComponent()
+        {
+            this.Text = "Selezione File PDF";
+            this.Size = new Size(500, 400);
+            this.StartPosition = FormStartPosition.CenterParent;
+            
+            var btnOk = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(300, 320) };
+            var btnCancel = new Button { Text = "Annulla", DialogResult = DialogResult.Cancel, Location = new Point(380, 320) };
+            
+            this.Controls.Add(btnOk);
+            this.Controls.Add(btnCancel);
+        }
+    }
+
+    public partial class AboutDialog : Form
+    {
+        public AboutDialog()
+        {
+            InitializeComponent();
+        }
+
+        private void InitializeComponent()
+        {
+            this.Text = $"About {AppInfo.Name}";
+            this.Size = new Size(400, 300);
+            this.StartPosition = FormStartPosition.CenterParent;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+
+            var lblInfo = new Label
+            {
+                Text = $@"{AppInfo.Name} v{AppInfo.Version}
+{AppInfo.Description}
+
+© {AppInfo.Copyright}
+License: {AppInfo.License}
+
+GitHub: {AppInfo.GitHubUrl}",
+                Location = new Point(20, 20),
+                Size = new Size(350, 200),
+                AutoSize = false
+            };
+
+            var btnClose = new Button
+            {
+                Text = "Chiudi",
+                DialogResult = DialogResult.OK,
+                Location = new Point(160, 230),
+                Size = new Size(80, 25)
+            };
+
+            this.Controls.Add(lblInfo);
+            this.Controls.Add(btnClose);
+        }
+    }
+
     public partial class MainForm : Form
     {
         private EmailPrintService _service;
@@ -161,6 +239,16 @@ namespace EmailPrintService
         private bool _isServiceRunning;
         private AppSettings _settings;
         private PrintSettings _printSettings;
+
+        // Controlli UI
+        private TextBox txtEmailServer, txtEmailUsername, txtEmailPassword, txtLog;
+        private NumericUpDown txtEmailPort, txtInterval, txtTimeout;
+        private ComboBox cmbPrinter;
+        private CheckBox chkSendConfirmation, chkDeleteAfterPrint, chkAutoStart;
+        private Button btnSave, btnStart, btnStop, btnConfigurePrint;
+        private Label lblStatus, lblPrintInfo, lblMethodInfo, lblConfirmInfo;
+        private RadioButton rbPrintAuto, rbPrintNet, rbPrintSumatra, rbPrintShell;
+        private RadioButton rbConfirmAuto, rbConfirmTimed, rbConfirmManual;
 
         public MainForm()
         {
@@ -179,8 +267,8 @@ namespace EmailPrintService
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.ShowInTaskbar = false; // Non mostra nella taskbar
-            this.WindowState = FormWindowState.Minimized; // Inizia minimizzato
+            this.ShowInTaskbar = false;
+            this.WindowState = FormWindowState.Minimized;
 
             CreateControls();
         }
@@ -361,15 +449,6 @@ namespace EmailPrintService
             this.Controls.Add(panel);
         }
 
-        private TextBox txtEmailServer, txtEmailUsername, txtEmailPassword, txtLog;
-        private NumericUpDown txtEmailPort, txtInterval, txtTimeout;
-        private ComboBox cmbPrinter;
-        private CheckBox chkSendConfirmation, chkDeleteAfterPrint, chkAutoStart;
-        private Button btnSave, btnStart, btnStop, btnConfigurePrint;
-        private Label lblStatus, lblPrintInfo, lblMethodInfo, lblConfirmInfo;
-        private RadioButton rbPrintAuto, rbPrintNet, rbPrintSumatra, rbPrintShell;
-        private RadioButton rbConfirmAuto, rbConfirmTimed, rbConfirmManual;
-
         private void InitializeTrayIcon()
         {
             _trayIcon = new NotifyIcon()
@@ -383,10 +462,10 @@ namespace EmailPrintService
             contextMenu.Items.Add("📧 Controlla Email Ora", null, async (s, e) => await ForceEmailCheck());
             contextMenu.Items.Add("📄 Mostra Finestra", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; });
             contextMenu.Items.Add("🔄 Riavvia Servizio", null, async (s, e) => await RestartService());
-            contextMenu.Items.Add("-"); // Separatore
+            contextMenu.Items.Add("-");
             contextMenu.Items.Add("ℹ️ Info Stato", null, (s, e) => ShowStatusInfo());
             contextMenu.Items.Add("📁 Apri Cartella Log", null, (s, e) => OpenLogFolder());
-            contextMenu.Items.Add("-"); // Separatore
+            contextMenu.Items.Add("-");
             contextMenu.Items.Add($"👨‍💻 About {AppInfo.Name}", null, (s, e) => ShowAboutDialog());
             contextMenu.Items.Add("❌ Esci", null, (s, e) => { Application.Exit(); });
 
@@ -394,20 +473,332 @@ namespace EmailPrintService
             _trayIcon.DoubleClick += (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; };
         }
 
+        // Event handlers e metodi principali
+        private void LoadPrinters()
+        {
+            cmbPrinter.Items.Clear();
+            cmbPrinter.Items.Add("(Stampante predefinita)");
+            foreach (string printerName in PrinterSettings.InstalledPrinters)
+            {
+                cmbPrinter.Items.Add(printerName);
+            }
+            cmbPrinter.SelectedIndex = 0;
+        }
+
+        private void LoadSettings()
+        {
+            try
+            {
+                txtEmailServer.Text = _settings.EmailServer;
+                txtEmailPort.Value = _settings.EmailPort;
+                txtEmailUsername.Text = _settings.EmailUsername;
+                txtEmailPassword.Text = _settings.EmailPassword;
+                
+                var printerName = _settings.PrinterName;
+                if (string.IsNullOrEmpty(printerName))
+                    cmbPrinter.SelectedIndex = 0;
+                else
+                {
+                    var index = cmbPrinter.Items.IndexOf(printerName);
+                    cmbPrinter.SelectedIndex = index > 0 ? index : 0;
+                }
+
+                chkSendConfirmation.Checked = _settings.SendConfirmation;
+                chkDeleteAfterPrint.Checked = _settings.DeleteAfterPrint;
+                chkAutoStart.Checked = _settings.AutoStart;
+                txtInterval.Value = _settings.CheckInterval;
+
+                LoadPrintMethodSelection();
+                LoadConfirmationModeSelection();
+                UpdatePrintInfo();
+            }
+            catch
+            {
+                txtEmailServer.Text = "imap.gmail.com";
+                txtEmailPort.Value = 993;
+            }
+        }
+
+        private void LoadPrintMethodSelection()
+        {
+            switch (_printSettings.PreferredMethod)
+            {
+                case PrintMethod.NetPrintDocument:
+                    rbPrintNet.Checked = true;
+                    break;
+                case PrintMethod.SumatraPDF:
+                    rbPrintSumatra.Checked = true;
+                    break;
+                case PrintMethod.WindowsShell:
+                    rbPrintShell.Checked = true;
+                    break;
+                case PrintMethod.Auto:
+                default:
+                    rbPrintAuto.Checked = true;
+                    break;
+            }
+        }
+
+        private void LoadConfirmationModeSelection()
+        {
+            txtTimeout.Value = _printSettings.ConfirmationTimeout;
+
+            switch (_printSettings.ConfirmationMode)
+            {
+                case PrintConfirmationMode.TimedConfirmation:
+                    rbConfirmTimed.Checked = true;
+                    txtTimeout.Enabled = true;
+                    break;
+                case PrintConfirmationMode.ManualConfirmation:
+                    rbConfirmManual.Checked = true;
+                    txtTimeout.Enabled = false;
+                    break;
+                case PrintConfirmationMode.Automatic:
+                default:
+                    rbConfirmAuto.Checked = true;
+                    txtTimeout.Enabled = false;
+                    break;
+            }
+        }
+
+        private void ShowMethodInfo(string info)
+        {
+            if (lblMethodInfo != null)
+            {
+                lblMethodInfo.Text = info;
+                lblMethodInfo.ForeColor = Color.DarkBlue;
+            }
+        }
+
+        private void ShowConfirmInfo(string info)
+        {
+            if (lblConfirmInfo != null)
+            {
+                lblConfirmInfo.Text = info;
+                lblConfirmInfo.ForeColor = Color.DarkGreen;
+            }
+        }
+
+        private void UpdatePrintInfo()
+        {
+            var info = $"Stampa: {(_printSettings.PaperSize)} - {(_printSettings.Duplex ? "Fronte/Retro" : "Solo Fronte")} - {(_printSettings.FitToPage ? "Adatta alla pagina" : "Dimensione originale")}";
+            lblPrintInfo.Text = info;
+            lblPrintInfo.ForeColor = string.IsNullOrEmpty(_printSettings.PrinterSettingsData) ? Color.Red : Color.Green;
+        }
+
+        private void BtnConfigurePrint_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                if (cmbPrinter.SelectedIndex <= 0)
+                {
+                    MessageBox.Show("Seleziona prima una stampante!", "Attenzione", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var selectedPrinter = cmbPrinter.Text;
+                
+                using (var printDoc = new PrintDocument())
+                {
+                    printDoc.PrinterSettings.PrinterName = selectedPrinter;
+                    
+                    if (!printDoc.PrinterSettings.IsValid)
+                    {
+                        MessageBox.Show($"Stampante non valida: {selectedPrinter}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    using (var printDialog = new PrintDialog())
+                    {
+                        printDialog.Document = printDoc;
+                        printDialog.UseEXDialog = true;
+                        printDialog.AllowPrintToFile = false;
+                        printDialog.AllowSelection = false;
+                        printDialog.AllowSomePages = false;
+                        printDialog.ShowHelp = false;
+
+                        if (printDialog.ShowDialog(this) == DialogResult.OK)
+                        {
+                            SavePrintSettings(printDoc.PrinterSettings, printDoc.DefaultPageSettings);
+                            
+                            MessageBox.Show("Impostazioni di stampa salvate con successo!", 
+                                          "Configurazione Completata", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            
+                            UpdatePrintInfo();
+                            LogMessage("Impostazioni di stampa configurate");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore nella configurazione stampa: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SavePrintSettings(PrinterSettings printerSettings, PageSettings pageSettings)
+        {
+            _printSettings.PrinterName = printerSettings.PrinterName;
+            _printSettings.Duplex = printerSettings.Duplex != Duplex.Simplex;
+            _printSettings.PaperSize = pageSettings.PaperSize.PaperName;
+            _printSettings.Landscape = pageSettings.Landscape;
+            _printSettings.Copies = printerSettings.Copies;
+            _printSettings.ColorPrinting = printerSettings.SupportsColor && !printerSettings.DefaultPageSettings.Color;
+
+            try
+            {
+                var settingsData = new
+                {
+                    Duplex = printerSettings.Duplex,
+                    PaperSizeName = pageSettings.PaperSize.PaperName,
+                    PaperSizeWidth = pageSettings.PaperSize.Width,
+                    PaperSizeHeight = pageSettings.PaperSize.Height,
+                    Landscape = pageSettings.Landscape,
+                    Copies = printerSettings.Copies,
+                    Margins = new { 
+                        Left = pageSettings.Margins.Left, 
+                        Right = pageSettings.Margins.Right, 
+                        Top = pageSettings.Margins.Top, 
+                        Bottom = pageSettings.Margins.Bottom 
+                    }
+                };
+                
+                _printSettings.PrinterSettingsData = JsonSerializer.Serialize(settingsData);
+            }
+            catch
+            {
+                _printSettings.PrinterSettingsData = "configured";
+            }
+
+            _printSettings.Save();
+        }
+
+        private void BtnSave_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                _settings.EmailServer = txtEmailServer.Text;
+                _settings.EmailPort = (int)txtEmailPort.Value;
+                _settings.EmailUsername = txtEmailUsername.Text;
+                _settings.EmailPassword = txtEmailPassword.Text;
+                _settings.PrinterName = cmbPrinter.SelectedIndex == 0 ? "" : cmbPrinter.Text;
+                _settings.SendConfirmation = chkSendConfirmation.Checked;
+                _settings.DeleteAfterPrint = chkDeleteAfterPrint.Checked;
+                _settings.AutoStart = chkAutoStart.Checked;
+                _settings.CheckInterval = (int)txtInterval.Value;
+                
+                // Salva metodo di stampa preferito
+                if (rbPrintNet.Checked)
+                    _printSettings.PreferredMethod = PrintMethod.NetPrintDocument;
+                else if (rbPrintSumatra.Checked)
+                    _printSettings.PreferredMethod = PrintMethod.SumatraPDF;
+                else if (rbPrintShell.Checked)
+                    _printSettings.PreferredMethod = PrintMethod.WindowsShell;
+                else
+                    _printSettings.PreferredMethod = PrintMethod.Auto;
+
+                // Salva modalità di conferma stampa
+                if (rbConfirmTimed.Checked)
+                    _printSettings.ConfirmationMode = PrintConfirmationMode.TimedConfirmation;
+                else if (rbConfirmManual.Checked)
+                    _printSettings.ConfirmationMode = PrintConfirmationMode.ManualConfirmation;
+                else
+                    _printSettings.ConfirmationMode = PrintConfirmationMode.Automatic;
+
+                _printSettings.ConfirmationTimeout = (int)txtTimeout.Value;
+
+                _printSettings.Save();
+                _settings.Save();
+
+                SetAutoStart(chkAutoStart.Checked);
+
+                MessageBox.Show("Impostazioni salvate con successo!", "Successo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LogMessage("Impostazioni salvate");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore nel salvare le impostazioni: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SetAutoStart(bool enabled)
+        {
+            try
+            {
+                var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+                if (enabled)
+                {
+                    key?.SetValue("EmailPrintService", Application.ExecutablePath);
+                }
+                else
+                {
+                    key?.DeleteValue("EmailPrintService", false);
+                }
+                key?.Close();
+            }
+            catch
+            {
+                // Ignora errori di registro
+            }
+        }
+
+        private async void BtnStart_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtEmailUsername.Text) || string.IsNullOrWhiteSpace(txtEmailPassword.Text))
+            {
+                MessageBox.Show("Inserisci username e password email!", "Attenzione", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                await StartServiceInternal();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore nell'avvio del servizio: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnStop_Click(object sender, EventArgs e)
+        {
+            btnStart.Enabled = true;
+            btnStop.Enabled = false;
+            _isServiceRunning = false;
+            lblStatus.Text = "Servizio fermo";
+            lblStatus.ForeColor = Color.Red;
+
+            _service?.Stop();
+            LogMessage("Servizio fermato");
+        }
+
+        private void BtnAbout_Click(object sender, EventArgs e)
+        {
+            ShowAboutDialog();
+        }
+
+        private void ShowAboutDialog()
+        {
+            using (var aboutForm = new AboutDialog())
+            {
+                aboutForm.ShowDialog(this);
+            }
+        }
+
+        // Altri metodi helper
         private async Task ForceEmailCheck()
         {
             try
             {
                 if (!_isServiceRunning)
                 {
-                    _trayIcon.ShowBalloonTip(3000, "Email Print Service", "Servizio non avviato! Avvia prima il servizio.", ToolTipIcon.Warning);
+                    _trayIcon.ShowBalloonTip(3000, "Email Print Service", "Servizio non avviato!", ToolTipIcon.Warning);
                     return;
                 }
 
                 _trayIcon.ShowBalloonTip(2000, "Controllo Email", "Controllo manuale email in corso...", ToolTipIcon.Info);
                 LogMessage("🔍 Controllo email forzato dall'utente");
                 
-                // Forza il controllo email nel servizio
                 await _service.ForceEmailCheck();
                 
                 _trayIcon.ShowBalloonTip(2000, "Controllo Completato", "Controllo email completato.", ToolTipIcon.Info);
@@ -426,7 +817,7 @@ namespace EmailPrintService
                 if (_isServiceRunning)
                 {
                     BtnStop_Click(null, null);
-                    await Task.Delay(2000); // Aspetta 2 secondi
+                    await Task.Delay(2000);
                 }
                 
                 if (!string.IsNullOrWhiteSpace(txtEmailUsername.Text) && !string.IsNullOrWhiteSpace(txtEmailPassword.Text))
@@ -468,8 +859,6 @@ namespace EmailPrintService
 
                 _service.OnStatusChanged += Service_OnStatusChanged;
                 _service.OnLogMessage += Service_OnLogMessage;
-
-                // Aggiorna le impostazioni di stampa nel servizio
                 _service.UpdatePrintSettings();
 
                 await _service.StartAsync();
@@ -529,403 +918,6 @@ namespace EmailPrintService
             }
         }
 
-        private void LoadPrinters()
-        {
-            cmbPrinter.Items.Clear();
-            cmbPrinter.Items.Add("(Stampante predefinita)");
-            foreach (string printerName in PrinterSettings.InstalledPrinters)
-            {
-                cmbPrinter.Items.Add(printerName);
-            }
-            cmbPrinter.SelectedIndex = 0;
-        }
-
-        private void LoadSettings()
-        {
-            try
-            {
-                txtEmailServer.Text = _settings.EmailServer;
-                txtEmailPort.Value = _settings.EmailPort;
-                txtEmailUsername.Text = _settings.EmailUsername;
-                txtEmailPassword.Text = _settings.EmailPassword;
-                
-                var printerName = _settings.PrinterName;
-                if (string.IsNullOrEmpty(printerName))
-                    cmbPrinter.SelectedIndex = 0;
-                else
-                {
-                    var index = cmbPrinter.Items.IndexOf(printerName);
-                    cmbPrinter.SelectedIndex = index > 0 ? index : 0;
-                }
-
-                chkSendConfirmation.Checked = _settings.SendConfirmation;
-                chkDeleteAfterPrint.Checked = _settings.DeleteAfterPrint;
-                chkAutoStart.Checked = _settings.AutoStart;
-                txtInterval.Value = _settings.CheckInterval;
-
-                // Carica metodo di stampa preferito
-                LoadPrintMethodSelection();
-
-                // Carica modalità di conferma stampa
-                LoadConfirmationModeSelection();
-
-                // Aggiorna info stampa
-                UpdatePrintInfo();
-            }
-            catch
-            {
-                // Impostazioni di default se qualcosa va male
-                txtEmailServer.Text = "imap.gmail.com";
-                txtEmailPort.Value = 993;
-            }
-        }
-
-        private void LoadPrintMethodSelection()
-        {
-            switch (_printSettings.PreferredMethod)
-            {
-                case PrintMethod.NetPrintDocument:
-                    rbPrintNet.Checked = true;
-                    ShowMethodInfo("Usa solo .NET nativo - più pulito ma limitato per PDF complessi");
-                    break;
-                case PrintMethod.SumatraPDF:
-                    rbPrintSumatra.Checked = true;
-                    ShowMethodInfo("Usa SumatraPDF.exe (devi copiarlo manualmente nella cartella dell'app)");
-                    break;
-                case PrintMethod.WindowsShell:
-                    rbPrintShell.Checked = true;
-                    ShowMethodInfo("Usa l'app predefinita di Windows - può aprire finestre");
-                    break;
-                case PrintMethod.Auto:
-                default:
-                    rbPrintAuto.Checked = true;
-                    ShowMethodInfo("Prova prima .NET, poi SumatraPDF, infine Windows Shell");
-                    break;
-            }
-        }
-
-        private void LoadConfirmationModeSelection()
-        {
-            txtTimeout.Value = _printSettings.ConfirmationTimeout;
-
-            switch (_printSettings.ConfirmationMode)
-            {
-                case PrintConfirmationMode.TimedConfirmation:
-                    rbConfirmTimed.Checked = true;
-                    ShowConfirmInfo("Mostra popup, se non rispondi entro X secondi stampa automaticamente");
-                    txtTimeout.Enabled = true;
-                    break;
-                case PrintConfirmationMode.ManualConfirmation:
-                    rbConfirmManual.Checked = true;
-                    ShowConfirmInfo("Mostra sempre popup e attende conferma o rifiuto dell'utente");
-                    txtTimeout.Enabled = false;
-                    break;
-                case PrintConfirmationMode.Automatic:
-                default:
-                    rbConfirmAuto.Checked = true;
-                    ShowConfirmInfo("Stampa automaticamente senza chiedere conferma");
-                    txtTimeout.Enabled = false;
-                    break;
-            }
-        }
-
-        private void ShowMethodInfo(string info)
-        {
-            if (lblMethodInfo != null)
-            {
-                lblMethodInfo.Text = info;
-                lblMethodInfo.ForeColor = Color.DarkBlue;
-            }
-            }
-            catch
-            {
-                // Impostazioni di default se qualcosa va male
-                txtEmailServer.Text = "imap.gmail.com";
-                txtEmailPort.Value = 993;
-            }
-        }
-
-        private void UpdatePrintInfo()
-        {
-            var info = $"Stampa: {(_printSettings.PaperSize)} - {(_printSettings.Duplex ? "Fronte/Retro" : "Solo Fronte")} - {(_printSettings.FitToPage ? "Adatta alla pagina" : "Dimensione originale")}";
-            lblPrintInfo.Text = info;
-            lblPrintInfo.ForeColor = string.IsNullOrEmpty(_printSettings.PrinterSettingsData) ? Color.Red : Color.Green;
-        }
-
-        private void BtnAbout_Click(object sender, EventArgs e)
-        {
-            ShowAboutDialog();
-        }
-
-        private void ShowAboutDialog()
-        {
-            using (var aboutForm = new AboutDialog())
-            {
-                aboutForm.ShowDialog(this);
-            }
-        }
-        {
-            try
-            {
-                if (cmbPrinter.SelectedIndex <= 0)
-                {
-                    MessageBox.Show("Seleziona prima una stampante!", "Attenzione", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                var selectedPrinter = cmbPrinter.Text;
-                
-                // Crea un PrintDocument per la stampante selezionata
-                using (var printDoc = new PrintDocument())
-                {
-                    printDoc.PrinterSettings.PrinterName = selectedPrinter;
-                    
-                    if (!printDoc.PrinterSettings.IsValid)
-                    {
-                        MessageBox.Show($"Stampante non valida: {selectedPrinter}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        return;
-                    }
-
-                    // Carica impostazioni precedenti se esistono
-                    if (!string.IsNullOrEmpty(_printSettings.PrinterSettingsData))
-                    {
-                        try
-                        {
-                            // Ripristina impostazioni salvate
-                            RestorePrintSettings(printDoc.PrinterSettings);
-                        }
-                        catch
-                        {
-                            // Ignora errori nel ripristino - usa impostazioni default
-                        }
-                    }
-                    else
-                    {
-                        // Imposta valori di default sensati per uso aziendale
-                        printDoc.PrinterSettings.Duplex = Duplex.Vertical; // Fronte/retro
-                        printDoc.DefaultPageSettings.PaperSize = GetPaperSize(printDoc.PrinterSettings, "A4");
-                        printDoc.DefaultPageSettings.Landscape = false;
-                        printDoc.PrinterSettings.Copies = 1;
-                    }
-
-                    // Mostra il dialog di configurazione standard di Windows
-                    using (var printDialog = new PrintDialog())
-                    {
-                        printDialog.Document = printDoc;
-                        printDialog.UseEXDialog = true; // Usa il dialog esteso
-                        printDialog.AllowPrintToFile = false;
-                        printDialog.AllowSelection = false;
-                        printDialog.AllowSomePages = false;
-                        printDialog.ShowHelp = false;
-
-                        if (printDialog.ShowDialog(this) == DialogResult.OK)
-                        {
-                            // Salva le impostazioni scelte dall'utente
-                            SavePrintSettings(printDoc.PrinterSettings, printDoc.DefaultPageSettings);
-                            
-                            MessageBox.Show("Impostazioni di stampa salvate con successo!\nTutti i PDF verranno stampati con queste impostazioni.", 
-                                          "Configurazione Completata", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            
-                            UpdatePrintInfo();
-                            LogMessage("Impostazioni di stampa configurate");
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Errore nella configurazione stampa: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private PaperSize GetPaperSize(PrinterSettings printerSettings, string sizeName)
-        {
-            foreach (PaperSize size in printerSettings.PaperSizes)
-            {
-                if (size.PaperName.Contains(sizeName))
-                    return size;
-            }
-            return printerSettings.DefaultPageSettings.PaperSize; // Fallback
-        }
-
-        private void SavePrintSettings(PrinterSettings printerSettings, PageSettings pageSettings)
-        {
-            _printSettings.PrinterName = printerSettings.PrinterName;
-            _printSettings.Duplex = printerSettings.Duplex != Duplex.Simplex;
-            _printSettings.PaperSize = pageSettings.PaperSize.PaperName;
-            _printSettings.Landscape = pageSettings.Landscape;
-            _printSettings.Copies = printerSettings.Copies;
-            _printSettings.ColorPrinting = printerSettings.SupportsColor && !printerSettings.DefaultPageSettings.Color;
-
-            // Serializza le impostazioni complete per uso futuro
-            try
-            {
-                var settingsData = new
-                {
-                    Duplex = printerSettings.Duplex,
-                    PaperSizeName = pageSettings.PaperSize.PaperName,
-                    PaperSizeWidth = pageSettings.PaperSize.Width,
-                    PaperSizeHeight = pageSettings.PaperSize.Height,
-                    Landscape = pageSettings.Landscape,
-                    Copies = printerSettings.Copies,
-                    Margins = new { 
-                        Left = pageSettings.Margins.Left, 
-                        Right = pageSettings.Margins.Right, 
-                        Top = pageSettings.Margins.Top, 
-                        Bottom = pageSettings.Margins.Bottom 
-                    }
-                };
-                
-                _printSettings.PrinterSettingsData = JsonSerializer.Serialize(settingsData);
-            }
-            catch
-            {
-                // Se la serializzazione fallisce, almeno salva i dati base
-                _printSettings.PrinterSettingsData = "configured";
-            }
-
-            _printSettings.Save();
-        }
-
-        private void RestorePrintSettings(PrinterSettings printerSettings)
-        {
-            if (string.IsNullOrEmpty(_printSettings.PrinterSettingsData) || _printSettings.PrinterSettingsData == "configured")
-                return;
-
-            try
-            {
-                using (var document = JsonDocument.Parse(_printSettings.PrinterSettingsData))
-                {
-                    var root = document.RootElement;
-                    
-                    // Ripristina duplex
-                    if (root.TryGetProperty("Duplex", out var duplexElement))
-                    {
-                        printerSettings.Duplex = (Duplex)duplexElement.GetInt32();
-                    }
-                    
-                    // Ripristina numero copie
-                    if (root.TryGetProperty("Copies", out var copiesElement))
-                    {
-                        printerSettings.Copies = (short)copiesElement.GetInt32();
-                    }
-                    
-                    // Altri ripristini potrebbero essere aggiunti qui
-                }
-            }
-            catch
-            {
-                // Ignora errori nel ripristino
-            }
-            }
-            catch
-            {
-                // Impostazioni di default se qualcosa va male
-                txtEmailServer.Text = "imap.gmail.com";
-                txtEmailPort.Value = 993;
-            }
-        }
-
-        private void BtnSave_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                _settings.EmailServer = txtEmailServer.Text;
-                _settings.EmailPort = (int)txtEmailPort.Value;
-                _settings.EmailUsername = txtEmailUsername.Text;
-                _settings.EmailPassword = txtEmailPassword.Text;
-                _settings.PrinterName = cmbPrinter.SelectedIndex == 0 ? "" : cmbPrinter.Text;
-                _settings.SendConfirmation = chkSendConfirmation.Checked;
-                _settings.DeleteAfterPrint = chkDeleteAfterPrint.Checked;
-                _settings.AutoStart = chkAutoStart.Checked;
-                _settings.CheckInterval = (int)txtInterval.Value;
-                
-                // Salva metodo di stampa preferito
-                if (rbPrintNet.Checked)
-                    _printSettings.PreferredMethod = PrintMethod.NetPrintDocument;
-                else if (rbPrintSumatra.Checked)
-                    _printSettings.PreferredMethod = PrintMethod.SumatraPDF;
-                else if (rbPrintShell.Checked)
-                    _printSettings.PreferredMethod = PrintMethod.WindowsShell;
-                else
-                    _printSettings.PreferredMethod = PrintMethod.Auto;
-
-                // Salva modalità di conferma stampa
-                if (rbConfirmTimed.Checked)
-                    _printSettings.ConfirmationMode = PrintConfirmationMode.TimedConfirmation;
-                else if (rbConfirmManual.Checked)
-                    _printSettings.ConfirmationMode = PrintConfirmationMode.ManualConfirmation;
-                else
-                    _printSettings.ConfirmationMode = PrintConfirmationMode.Automatic;
-
-                _printSettings.ConfirmationTimeout = (int)txtTimeout.Value;
-
-                _printSettings.Save();
-                _settings.Save();
-
-                // Gestisce autostart
-                SetAutoStart(chkAutoStart.Checked);
-
-                MessageBox.Show("Impostazioni salvate con successo!", "Successo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                LogMessage("Impostazioni salvate");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Errore nel salvare le impostazioni: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void SetAutoStart(bool enabled)
-        {
-            try
-            {
-                var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
-                if (enabled)
-                {
-                    key?.SetValue("EmailPrintService", Application.ExecutablePath);
-                }
-                else
-                {
-                    key?.DeleteValue("EmailPrintService", false);
-                }
-                key?.Close();
-            }
-            catch
-            {
-                // Ignora errori di registro - non critici
-            }
-        }
-
-        private async void BtnStart_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(txtEmailUsername.Text) || string.IsNullOrWhiteSpace(txtEmailPassword.Text))
-            {
-                MessageBox.Show("Inserisci username e password email!", "Attenzione", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            try
-            {
-                await StartServiceInternal();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Errore nell'avvio del servizio: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void BtnStop_Click(object sender, EventArgs e)
-        {
-            btnStart.Enabled = true;
-            btnStop.Enabled = false;
-            _isServiceRunning = false;
-            lblStatus.Text = "Servizio fermo";
-            lblStatus.ForeColor = Color.Red;
-
-            _service?.Stop();
-            LogMessage("Servizio fermato");
-        }
-
         private void Service_OnStatusChanged(string status, bool isConnected)
         {
             if (InvokeRequired)
@@ -981,6 +973,7 @@ namespace EmailPrintService
         }
     }
 
+    // Classe del servizio email (versione semplificata)
     public class EmailPrintService
     {
         private ImapClient _imapClient;
@@ -1011,9 +1004,8 @@ namespace EmailPrintService
             _printerName = printer;
             _sendConfirmation = sendConfirmation;
             _deleteAfterPrint = deleteAfterPrint;
-            _checkInterval = interval * 1000; // Converti in millisecondi
+            _checkInterval = interval * 1000;
             
-            // Ricarica le impostazioni di stampa
             _printSettings = PrintSettings.Load();
         }
 
@@ -1125,7 +1117,6 @@ namespace EmailPrintService
         private async Task<bool> ProcessEmail(MimeMessage message)
         {
             var sender = message.From.FirstOrDefault()?.Name ?? message.From.FirstOrDefault()?.ToString() ?? "Sconosciuto";
-            var senderEmail = message.From.FirstOrDefault()?.ToString() ?? "email@sconosciuta.com";
             OnLogMessage?.Invoke($"Email ricevuta da: {sender}");
 
             var pdfAttachments = message.Attachments
@@ -1141,41 +1132,15 @@ namespace EmailPrintService
 
             OnLogMessage?.Invoke($"Trovati {pdfAttachments.Count} allegati PDF");
 
-            // Prepara informazioni sui file per la conferma
-            var fileInfos = new List<PdfFileInfo>();
-            
-            foreach (var attachment in pdfAttachments)
-            {
-                var fileName = attachment.FileName ?? $"document_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
-                var fileSize = await GetAttachmentSize(attachment);
-                
-                fileInfos.Add(new PdfFileInfo
-                {
-                    FileName = fileName,
-                    FileSizeBytes = fileSize,
-                    Attachment = attachment
-                });
-            }
-
-            // Gestisce la conferma per tutti i PDF insieme
-            var selectedFiles = await HandleMultiPdfConfirmation(fileInfos, sender, senderEmail, message.Subject ?? "Nessun oggetto");
-            
-            if (!selectedFiles.Any())
-            {
-                OnLogMessage?.Invoke("Nessun file selezionato per la stampa");
-                return false;
-            }
-
             bool allSuccess = true;
             var printedFiles = new List<string>();
 
-            // Stampa solo i file selezionati
-            foreach (var fileInfo in selectedFiles)
+            foreach (var attachment in pdfAttachments)
             {
-                var success = await ProcessSinglePdfAttachment(fileInfo, sender);
+                var success = await ProcessPdfAttachment(attachment, sender);
                 if (success)
                 {
-                    printedFiles.Add(fileInfo.FileName);
+                    printedFiles.Add(attachment.FileName ?? "document.pdf");
                 }
                 allSuccess = allSuccess && success;
             }
@@ -1186,133 +1151,6 @@ namespace EmailPrintService
             }
 
             return allSuccess;
-        }
-
-        private async Task<long> GetAttachmentSize(MimePart attachment)
-        {
-            try
-            {
-                // Stima approssimativa della dimensione decodificata
-                var encodedSize = attachment.Content.Stream?.Length ?? 0;
-                // Base64 ha circa 33% di overhead, quindi riduciamo
-                return (long)(encodedSize * 0.75);
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
-        private async Task<List<PdfFileInfo>> HandleMultiPdfConfirmation(List<PdfFileInfo> fileInfos, string sender, string senderEmail, string subject)
-        {
-            switch (_printSettings.ConfirmationMode)
-            {
-                case PrintConfirmationMode.Automatic:
-                    // Stampa tutti automaticamente
-                    OnLogMessage?.Invoke($"Modalità automatica: stampa di {fileInfos.Count} file PDF");
-                    return fileInfos;
-
-                case PrintConfirmationMode.TimedConfirmation:
-                    // Mostra finestra dettagliata con timer
-                    return await ShowDetailedTimedConfirmation(fileInfos, sender, senderEmail, subject);
-
-                case PrintConfirmationMode.ManualConfirmation:
-                    // Mostra finestra dettagliata manuale
-                    return ShowDetailedManualConfirmation(fileInfos, sender, senderEmail, subject);
-
-                default:
-                    return fileInfos;
-            }
-        }
-
-        private async Task<List<PdfFileInfo>> ShowDetailedTimedConfirmation(List<PdfFileInfo> fileInfos, string sender, string senderEmail, string subject)
-        {
-            var timeoutMs = _printSettings.ConfirmationTimeout * 1000;
-            
-            // Mostra la finestra di dettaglio in un task separato
-            var dialogTask = Task.Run(() => ShowPdfDetailDialog(fileInfos, sender, senderEmail, subject, true, _printSettings.ConfirmationTimeout));
-            
-            // Aspetta o per la risposta dell'utente o per il timeout
-            var timeoutTask = Task.Delay(timeoutMs);
-            var completedTask = await Task.WhenAny(dialogTask, timeoutTask);
-
-            if (completedTask == dialogTask)
-            {
-                // L'utente ha risposto
-                var selectedFiles = await dialogTask;
-                OnLogMessage?.Invoke($"Utente ha selezionato {selectedFiles.Count} file per la stampa");
-                return selectedFiles;
-            }
-            else
-            {
-                // Timeout scaduto - stampa tutti automaticamente
-                OnLogMessage?.Invoke($"Timeout scaduto ({_printSettings.ConfirmationTimeout}s) - stampa automatica di tutti i file");
-                return fileInfos;
-            }
-        }
-
-        private List<PdfFileInfo> ShowDetailedManualConfirmation(List<PdfFileInfo> fileInfos, string sender, string senderEmail, string subject)
-        {
-            var selectedFiles = ShowPdfDetailDialog(fileInfos, sender, senderEmail, subject, false, 0);
-            OnLogMessage?.Invoke($"Utente ha selezionato {selectedFiles.Count} file per la stampa");
-            return selectedFiles;
-        }
-
-        private List<PdfFileInfo> ShowPdfDetailDialog(List<PdfFileInfo> fileInfos, string sender, string senderEmail, string subject, bool hasTimeout, int timeoutSeconds)
-        {
-            using (var dialog = new PdfDetailDialog(fileInfos, sender, senderEmail, subject, hasTimeout, timeoutSeconds))
-            {
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    return dialog.SelectedFiles;
-                }
-                else
-                {
-                    return new List<PdfFileInfo>();
-                }
-            }
-        }
-
-        private async Task<bool> ProcessSinglePdfAttachment(PdfFileInfo fileInfo, string sender)
-        {
-            try
-            {
-                var filePath = Path.Combine(_tempFolder, fileInfo.FileName);
-
-                using (var stream = File.Create(filePath))
-                {
-                    await fileInfo.Attachment.Content.DecodeToAsync(stream);
-                }
-
-                OnLogMessage?.Invoke($"PDF salvato: {fileInfo.FileName} ({FormatFileSize(fileInfo.FileSizeBytes)})");
-
-                if (IsValidPdf(filePath))
-                {
-                    await PrintPdf(filePath, sender);
-                    OnLogMessage?.Invoke($"Stampato: {fileInfo.FileName} da {sender}");
-                    File.Delete(filePath);
-                    return true;
-                }
-                else
-                {
-                    OnLogMessage?.Invoke($"PDF non valido: {fileInfo.FileName}");
-                    File.Delete(filePath);
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                OnLogMessage?.Invoke($"Errore stampa {fileInfo.FileName}: {ex.Message}");
-                return false;
-            }
-        }
-
-        private string FormatFileSize(long bytes)
-        {
-            if (bytes < 1024) return $"{bytes} B";
-            if (bytes < 1024 * 1024) return $"{bytes / 1024:F1} KB";
-            if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024 * 1024):F1} MB";
-            return $"{bytes / (1024 * 1024 * 1024):F1} GB";
         }
 
         private async Task<bool> ProcessPdfAttachment(MimePart attachment, string sender)
@@ -1370,7 +1208,6 @@ namespace EmailPrintService
                 await Task.Run(() => PrintPdfDirect(filePath, _printerName));
                 OnLogMessage?.Invoke($"Stampato: {Path.GetFileName(filePath)} da {sender}");
 
-                // Log dell'attività
                 var logPath = Path.Combine(_tempFolder, "print_log.txt");
                 var logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Stampato '{Path.GetFileName(filePath)}' da {sender}";
                 File.AppendAllText(logPath, logEntry + Environment.NewLine);
@@ -1385,110 +1222,24 @@ namespace EmailPrintService
         {
             try
             {
-                // Usa PdfSharp per stampare direttamente senza Adobe
-                using (var document = PdfReader.Open(filePath, PdfDocumentOpenMode.ReadOnly))
+                // Metodo semplificato per stampare PDF
+                var psi = new ProcessStartInfo
                 {
-                    var printDocument = new PrintDocument();
-                    
-                    // Imposta stampante specifica se fornita
-                    if (!string.IsNullOrEmpty(printerName))
-                    {
-                        printDocument.PrinterSettings.PrinterName = printerName;
-                        
-                        // Verifica che la stampante esista
-                        if (!printDocument.PrinterSettings.IsValid)
-                        {
-                            throw new Exception($"Stampante non trovata: {printerName}");
-                        }
-                    }
+                    FileName = filePath,
+                    Verb = "print",
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    UseShellExecute = true
+                };
 
-                    // Imposta le pagine da stampare
-                    printDocument.PrinterSettings.FromPage = 1;
-                    printDocument.PrinterSettings.ToPage = document.PageCount;
-                    printDocument.PrinterSettings.PrintRange = PrintRange.SomePages;
-
-                    int currentPage = 0;
-
-                    printDocument.PrintPage += (sender, e) =>
-                    {
-                        if (currentPage < document.PageCount)
-                        {
-                            var page = document.Pages[currentPage];
-                            
-                            // Calcola scaling per adattare alla pagina
-                            var pageSize = new XSize(XUnit.FromPoint(page.Width), XUnit.FromPoint(page.Height));
-                            var scale = Math.Min(
-                                e.MarginBounds.Width / pageSize.Width,
-                                e.MarginBounds.Height / pageSize.Height
-                            );
-
-                            // Crea XGraphics per disegnare sulla stampante
-                            var graphics = XGraphics.FromGraphics(e.Graphics, pageSize);
-                            
-                            // Renderizza la pagina PDF
-                            RenderPdfPage(graphics, page, scale);
-                            
-                            currentPage++;
-                            e.HasMorePages = currentPage < document.PageCount;
-                        }
-                        else
-                        {
-                            e.HasMorePages = false;
-                        }
-                    };
-
-                    // Stampa il documento (SILENZIOSO - nessuna finestra)
-                    printDocument.Print();
+                using (var process = Process.Start(psi))
+                {
+                    process?.WaitForExit(30000);
                 }
             }
             catch (Exception ex)
             {
-                // Fallback: prova con il metodo Windows predefinito
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = "rundll32.exe",
-                        Arguments = $"printui.dll,PrintUIEntry /pt \"{filePath}\" \"{printerName}\" \"\"",
-                        CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden,
-                        UseShellExecute = false
-                    };
-                    
-                    using (var process = Process.Start(psi))
-                    {
-                        process?.WaitForExit(30000);
-                    }
-                }
-                catch
-                {
-                    throw new Exception($"Impossibile stampare il PDF: {ex.Message}");
-                }
-            }
-        }
-
-        private void RenderPdfPage(XGraphics graphics, PdfPage page, double scale)
-        {
-            // Implementazione semplificata per renderizzare la pagina PDF
-            // In una versione più completa, si userebbe un renderer PDF completo
-            
-            // Per ora, usa un approccio alternativo: conversione a immagine
-            try
-            {
-                // Questo è un placeholder - in una implementazione reale si userebbe
-                // una libreria come PDFium o simili per renderizzare correttamente
-                
-                var rect = new XRect(0, 0, page.Width * scale, page.Height * scale);
-                graphics.DrawRectangle(XBrushes.LightGray, rect);
-                
-                var font = new XFont("Arial", 12);
-                graphics.DrawString($"PDF Page Content", font, XBrushes.Black, rect, XStringFormats.Center);
-            }
-            catch
-            {
-                // Se il rendering fallisce, almeno stampa una pagina vuota
-                var rect = new XRect(0, 0, 595, 842); // A4 size
-                graphics.DrawRectangle(XBrushes.White, rect);
+                throw new Exception($"Impossibile stampare il PDF: {ex.Message}");
             }
         }
 
@@ -1526,17 +1277,6 @@ Sistema di Stampa Automatica
             {
                 OnLogMessage?.Invoke($"Errore invio conferma: {ex.Message}");
             }
-        }
-
-        private string GetAdobeReaderPath()
-        {
-            string[] possiblePaths = {
-                @"C:\Program Files (x86)\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                @"C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe",
-                @"C:\Program Files (x86)\Adobe\Reader 11.0\Reader\AcroRd32.exe"
-            };
-
-            return possiblePaths.FirstOrDefault(File.Exists) ?? "AcroRd32.exe";
         }
 
         public void Stop()
