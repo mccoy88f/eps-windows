@@ -33,7 +33,7 @@
     <PackageReleaseNotes>Initial release with full email-to-print automation, multi-PDF support, and GUI configuration.</PackageReleaseNotes>
     
     <!-- Self-contained deployment -->
-    <SelfContained>true</SelfContained>
+    <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
@@ -41,8 +41,7 @@
     
     <!-- Ottimizzazioni per ridurre dimensioni -->
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <DebugType>None</DebugType>
-    <DebugSymbols>false</DebugSymbols>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
