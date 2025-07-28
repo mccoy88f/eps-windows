@@ -68,7 +68,7 @@
 
 ### **For Developers:**
 ```bash
-git clone https://github.com/mccoy88f/email-print-service.git
+git clone https://github.com/mccoy88f/eps-service.git
 cd email-print-service
 dotnet build -c Release
 ```
@@ -85,7 +85,7 @@ dotnet build -c Release
 ### **Clone and Build**
 ```bash
 # Clone repository
-git clone https://github.com/mccoy88f/email-print-service.git
+git clone https://github.com/mccoy88f/eps-service.git
 cd email-print-service
 
 # Restore NuGet packages
