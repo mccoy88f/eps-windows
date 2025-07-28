@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    
+    <!-- Assembly Information -->
+    <AssemblyTitle>Email Print Service</AssemblyTitle>
+    <AssemblyDescription>Professional Windows service for automatic PDF printing from email attachments</AssemblyDescription>
+    <AssemblyConfiguration>Release</AssemblyConfiguration>
+    <AssemblyCompany>Antonello Migliorelli</AssemblyCompany>
+    <AssemblyProduct>Email Print Service</AssemblyProduct>
+    <AssemblyCopyright>© 2025 Antonello Migliorelli</AssemblyCopyright>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    
+    <!-- Package Information -->
+    <PackageId>EmailPrintService</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Authors>Antonello Migliorelli</Authors>
+    <Company>Antonello Migliorelli</Company>
+    <Product>Email Print Service</Product>
+    <Description>Professional Windows service for automatic PDF printing from email attachments. Supports Gmail, Outlook, Exchange with advanced print management and GUI configuration.</Description>
+    <Copyright>© 2025 Antonello Migliorelli</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/mccoy88f/email-print-service</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mccoy88f/email-print-service</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>email;print;pdf;automation;windows;service;imap;smtp</PackageTags>
+    <PackageReleaseNotes>Initial release with full email-to-print automation, multi-PDF support, and GUI configuration.</PackageReleaseNotes>
+    
+    <!-- Self-contained deployment -->
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    
+    <!-- Ottimizzazioni per ridurre dimensioni -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.3.0" />
+    <PackageReference Include="MimeKit" Version="4.3.0" />
+    <PackageReference Include="PdfSharp" Version="1.50.5147" />
+    <PackageReference Include="System.Text.Json" Version="6.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
+    <PackageReference Include="PdfSharp.Gdi" Version="1.50.5147" />
+  </ItemGroup>
+
+</Project>
