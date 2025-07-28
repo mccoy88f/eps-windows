@@ -26,7 +26,7 @@ namespace EmailPrintService
         public const string Version = "1.0.0";
         public const string Author = "Antonello Migliorelli";
         public const string GitHubUsername = "mccoy88f";
-        public const string GitHubUrl = "https://github.com/mccoy88f/email-print-service";
+        public const string GitHubUrl = "https://github.com/mccoy88f/eps-windows";
         public const string License = "MIT License";
         public const string Copyright = "© 2025 Antonello Migliorelli";
         public const string Description = "Professional Windows service for automatic PDF printing from email attachments";
