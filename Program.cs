@@ -1612,33 +1612,36 @@ GitHub: {AppInfo.GitHubUrl}",
                     OnLogMessage?.Invoke($"🔓 Nessun mittente sicuro configurato - processa tutte le email");
                 }
 
-                // Loop principale con cancellation token
-                while (_isRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
+                // Loop principale eseguito in background per non bloccare l'UI
+                _ = Task.Run(async () =>
                 {
-                    try
+                    while (_isRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
                     {
-                        lock (_imapLock)
+                        try
                         {
-                            ProcessNewEmails(inbox).Wait();
+                            lock (_imapLock)
+                            {
+                                ProcessNewEmails(inbox).Wait();
+                            }
+                            
+                            await Task.Delay(_checkInterval, _cancellationTokenSource.Token);
                         }
-                        
-                        await Task.Delay(_checkInterval, _cancellationTokenSource.Token);
+                        catch (OperationCanceledException)
+                        {
+                            // Task.Delay è stato cancellato, uscire dal loop
+                            OnLogMessage?.Invoke("🛑 Loop servizio cancellato");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            OnLogMessage?.Invoke($"❌ Errore nel loop principale: {ex.Message}");
+                            // Aspetta un po' prima di riprovare
+                            await Task.Delay(5000, _cancellationTokenSource.Token);
+                        }
                     }
-                    catch (OperationCanceledException)
-                    {
-                        // Task.Delay è stato cancellato, uscire dal loop
-                        OnLogMessage?.Invoke("🛑 Loop servizio cancellato");
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        OnLogMessage?.Invoke($"❌ Errore nel loop principale: {ex.Message}");
-                        // Aspetta un po' prima di riprovare
-                        await Task.Delay(5000, _cancellationTokenSource.Token);
-                    }
-                }
-                
-                OnLogMessage?.Invoke("🔚 Loop servizio terminato");
+                    
+                    OnLogMessage?.Invoke("🔚 Loop servizio terminato");
+                }, _cancellationTokenSource.Token);
             }
             catch (Exception ex)
             {
