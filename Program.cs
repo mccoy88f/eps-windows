@@ -1472,7 +1472,7 @@ GitHub: {AppInfo.GitHubUrl}",
             _printSettings = PrintSettings.Load();
         }
 
-        public Task ForceEmailCheck()
+        public async Task ForceEmailCheck()
         {
             if (!_isRunning)
             {
@@ -1488,37 +1488,23 @@ GitHub: {AppInfo.GitHubUrl}",
             {
                 OnLogMessage?.Invoke("🔍 Controllo email forzato dall'utente");
                 
-                // Usa lock per evitare conflitti con il loop principale
-                lock (_imapLock)
+                // Crea un nuovo client IMAP temporaneo per evitare conflitti con il loop principale
+                using (var tempImapClient = new ImapClient())
                 {
-                    if (_imapClient?.IsConnected != true)
-                    {
-                        OnLogMessage?.Invoke("🔄 Riconnessione IMAP necessaria...");
-                        _imapClient = new ImapClient();
-                        _imapClient.ConnectAsync(_emailServer, _emailPort, true).Wait();
-                        _imapClient.AuthenticateAsync(_emailUsername, _emailPassword).Wait();
-                        OnLogMessage?.Invoke("✅ Riconnessione IMAP completata");
-                    }
+                    OnLogMessage?.Invoke("🔄 Connessione temporanea per controllo manuale...");
+                    await tempImapClient.ConnectAsync(_emailServer, _emailPort, true);
+                    await tempImapClient.AuthenticateAsync(_emailUsername, _emailPassword);
                     
-                    var inbox = _imapClient.Inbox;
-                    
-                    if (!inbox.IsOpen)
-                    {
-                        inbox.OpenAsync(FolderAccess.ReadWrite).Wait();
-                    }
-                    else if (inbox.Access != FolderAccess.ReadWrite)
-                    {
-                        // Se la cartella è aperta in modalità diversa, riaprila in read-write
-                        inbox.CloseAsync().Wait();
-                        inbox.OpenAsync(FolderAccess.ReadWrite).Wait();
-                    }
+                    var tempInbox = tempImapClient.Inbox;
+                    await tempInbox.OpenAsync(FolderAccess.ReadWrite);
                     
                     OnLogMessage?.Invoke($"⏰ Cercando email ricevute dopo: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
-                    ProcessNewEmails(inbox).Wait();
+                    await ProcessNewEmails(tempInbox);
                     OnLogMessage?.Invoke("✅ Controllo email forzato completato");
+                    
+                    await tempInbox.CloseAsync();
+                    await tempImapClient.DisconnectAsync(true);
                 }
-                
-                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
@@ -1650,12 +1636,7 @@ GitHub: {AppInfo.GitHubUrl}",
                 OnLogMessage?.Invoke($"❌ {errorMsg}");
                 throw;
             }
-            finally
-            {
-                // Cleanup sempre eseguito
-                OnLogMessage?.Invoke("🧹 Cleanup risorse in corso...");
-                CleanupResources();
-            }
+            // Rimuovi il finally block che causava il cleanup immediato
         }
 
         private async Task ProcessNewEmails(IMailFolder inbox)
@@ -2112,7 +2093,8 @@ Sistema di Stampa Automatica
             OnStatusChanged?.Invoke("Servizio fermo", false);
             OnLogMessage?.Invoke("🛑 Servizio fermato");
             
-            // Il cleanup verrà fatto nel finally di StartAsync
+            // Esegui il cleanup delle risorse
+            CleanupResources();
         }
     }
 
