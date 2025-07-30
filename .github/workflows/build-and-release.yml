@@ -50,36 +50,13 @@ jobs:
     - name: Create release package
       run: |
         $version = "${{ steps.version.outputs.version }}"
-        $packageName = "EmailPrintService-v$version-win-x64.zip"
+        $packageName = "EmailPrintService-v$version-portable-win-x64.zip"
         
-        # Crea il package ZIP
+        # Crea il package ZIP portabile con tutto incluso
         Compress-Archive -Path "./publish/*" -DestinationPath "./$packageName" -Force
         
-        # Crea anche un package con solo i file essenziali
-        $essentialFiles = @(
-          "EmailPrintService.exe",
-          "EmailPrintService.dll",
-          "EmailPrintService.deps.json",
-          "EmailPrintService.runtimeconfig.json",
-          "app.ico",
-          "*.dll"
-        )
-        
-        $essentialPackageName = "EmailPrintService-v$version-essential-win-x64.zip"
-        $tempDir = "temp-essential"
-        
-        if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
-        New-Item -ItemType Directory -Path $tempDir | Out-Null
-        
-        # Copia solo i file essenziali
-        Copy-Item "app.ico" $tempDir/
-        Get-ChildItem "./publish" -Include $essentialFiles | Copy-Item -Destination $tempDir/
-        
-        Compress-Archive -Path "$tempDir/*" -DestinationPath "./$essentialPackageName" -Force
-        Remove-Item $tempDir -Recurse -Force
-        
-        echo "Package created: $packageName"
-        echo "Essential package created: $essentialPackageName"
+        echo "Portable package created: $packageName"
+        echo "Package contains all necessary DLLs and runtime - no additional installation required"
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
@@ -114,12 +91,11 @@ jobs:
           - ✅ Cleanup risorse migliorato
           
           ### 📦 Contenuto
-          - **EmailPrintService-v${{ steps.version.outputs.version }}-win-x64.zip**: Package completo con tutte le dipendenze
-          - **EmailPrintService-v${{ steps.version.outputs.version }}-essential-win-x64.zip**: Package essenziale con solo i file necessari
+          - **EmailPrintService-v${{ steps.version.outputs.version }}-portable-win-x64.zip**: Package portabile completo con tutto incluso
           
           ### 🖥️ Requisiti
           - Windows 10/11
-          - .NET 9.0 Runtime (incluso nel package completo)
+          - **Nessun requisito aggiuntivo** - tutto incluso nel package
           
           ### 📋 Installazione
           1. Scarica il package ZIP

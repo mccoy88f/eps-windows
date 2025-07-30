@@ -91,9 +91,7 @@ dotnet build -c Release
 This project uses automated GitHub Actions for continuous integration and deployment:
 
 - **🔄 Build & Release**: Automatically builds and creates release packages on every push to `main`
-- **📦 Package Creation**: Generates two ZIP packages:
-  - **Complete Package**: Full application with all dependencies
-  - **Essential Package**: Minimal files for users with .NET Runtime installed
+- **📦 Package Creation**: Generates a single portable ZIP package with everything included
 - **🏷️ Version Management**: Automatic version extraction from code
 - **📋 Release Notes**: Auto-generated release notes with changelog
 
