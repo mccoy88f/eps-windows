@@ -2,8 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationIcon>app.ico</ApplicationIcon>
     
     <!-- Assembly Information -->
@@ -52,8 +53,8 @@
     <!-- PDF processing - versione più recente compatibile con .NET 9 -->
     <PackageReference Include="PdfSharp" Version="6.1.1" />
     
-    <!-- System libraries sono incluse in .NET 9 runtime, non serve specificarle -->
-    <!-- System.Text.Json e System.Drawing.Common sono già inclusi -->
+    <!-- System libraries per .NET 9 -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

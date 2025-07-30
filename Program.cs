@@ -4,10 +4,13 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Printing;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
 using MailKit.Net.Imap;
 using MailKit.Net.Smtp;
 using MailKit;
+using MailKit.Search;
+using MailKit.Security;
 using MimeKit;
 using System.Linq;
 using System.Threading;
@@ -23,7 +26,7 @@ namespace EmailPrintService
     public static class AppInfo
     {
         public const string Name = "Email Print Service";
-        public const string Version = "1.0.0";
+        public const string Version = "1.0.1";
         public const string Author = "Antonello Migliorelli";
         public const string GitHubUsername = "mccoy88f";
         public const string GitHubUrl = "https://github.com/mccoy88f/eps-windows";
@@ -52,6 +55,7 @@ namespace EmailPrintService
         public bool DeleteAfterPrint { get; set; } = false;
         public bool AutoStart { get; set; } = false;
         public int CheckInterval { get; set; } = 10;
+        public string SecureSender { get; set; } = ""; // Email del mittente sicuro (opzionale)
 
         private static readonly string _settingsPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -238,6 +242,7 @@ GitHub: {AppInfo.GitHubUrl}",
         private bool _isServiceRunning;
         private AppSettings _settings;
         private PrintSettings _printSettings;
+        private ToolTip _toolTip; // Aggiungi componente ToolTip
 
         // Controlli UI
         private TextBox txtEmailServer, txtEmailUsername, txtEmailPassword, txtLog;
@@ -245,231 +250,495 @@ GitHub: {AppInfo.GitHubUrl}",
         private ComboBox cmbPrinter;
         private CheckBox chkSendConfirmation, chkDeleteAfterPrint, chkAutoStart;
         private Button btnSave, btnStart, btnStop, btnConfigurePrint;
-        private Label lblStatus, lblPrintInfo, lblMethodInfo, lblConfirmInfo;
+        private Label lblStatus, lblPrintInfo, lblConfirmInfo;
         private RadioButton rbPrintAuto, rbPrintNet, rbPrintSumatra, rbPrintShell;
         private RadioButton rbConfirmAuto, rbConfirmTimed, rbConfirmManual;
+        private TextBox txtSecureSender; // Campo per il mittente sicuro
 
         public MainForm()
         {
-            InitializeComponent();
-            InitializeTrayIcon();
-            _service = new EmailPrintService();
-            _settings = AppSettings.Load();
-            _printSettings = PrintSettings.Load();
-            LoadSettings();
+            try
+            {
+                _toolTip = new ToolTip(); // Inizializza prima
+                InitializeComponent();
+                InitializeTrayIcon();
+                _service = new EmailPrintService();
+                _settings = AppSettings.Load();
+                _printSettings = PrintSettings.Load();
+                LoadSettings();
+                
+                // Pulisce il log file all'avvio
+                ClearLogFile();
+                
+                this.Show();
+                this.WindowState = FormWindowState.Normal;
+                this.BringToFront();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore inizializzazione MainForm: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void InitializeComponent()
         {
             this.Text = $"{AppInfo.Name} v{AppInfo.Version} - by {AppInfo.Author}";
-            this.Size = new Size(500, 900);
-            this.FormBorderStyle = FormBorderStyle.FixedSingle;
-            this.MaximizeBox = false;
+            this.Size = new Size(1000, 700); // Più largo che alto
+            this.FormBorderStyle = FormBorderStyle.Sizable; // Ridimensionabile
+            this.MinimumSize = new Size(800, 600); // Dimensione minima
+            this.MaximizeBox = true; // Abilita massimizzazione
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.ShowInTaskbar = false;
-            this.WindowState = FormWindowState.Minimized;
+            this.ShowInTaskbar = true;
+            this.Icon = CreateAppIcon();
 
             CreateControls();
         }
 
         private void CreateControls()
         {
-            var panel = new TableLayoutPanel
+            // Layout principale con 3 colonne per i blocchi centrali
+            var mainPanel = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 35,
+                ColumnCount = 3,
+                RowCount = 2,
                 Padding = new Padding(10)
             };
 
-            // Impostazioni Email
-            panel.Controls.Add(new Label { Text = "=== IMPOSTAZIONI EMAIL ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 0);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
+            // Configurazione delle colonne (25% - 25% - 25% - 25% per il log)
+            mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+            mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+            mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+            mainPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
 
-            panel.Controls.Add(new Label { Text = "Server IMAP:" }, 0, 1);
-            txtEmailServer = new TextBox { Width = 200 };
-            panel.Controls.Add(txtEmailServer, 1, 1);
+            // Configurazione delle righe (70% per i controlli, 30% per il log)
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 70));
+            mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 30));
 
-            panel.Controls.Add(new Label { Text = "Porta:" }, 0, 2);
+            // BLOCCO 1: Configurazione Email
+            var emailPanel = CreateEmailBlock();
+            mainPanel.Controls.Add(emailPanel, 0, 0);
+
+            // BLOCCO 2: Configurazione Stampante e processi di stampa
+            var printerPanel = CreatePrinterBlock();
+            mainPanel.Controls.Add(printerPanel, 1, 0);
+
+            // BLOCCO 3: Opzioni e conferme
+            var optionsPanel = CreateOptionsBlock();
+            mainPanel.Controls.Add(optionsPanel, 2, 0);
+
+            // AREA LOG (occupa tutta la larghezza nella riga inferiore)
+            var logPanel = CreateLogBlock();
+            mainPanel.Controls.Add(logPanel, 0, 1);
+            mainPanel.SetColumnSpan(logPanel, 4);
+
+            this.Controls.Add(mainPanel);
+        }
+
+        private Panel CreateEmailBlock()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Padding = new Padding(10)
+            };
+
+            var title = new Label
+            {
+                Text = "📧 Configurazione Email",
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.DarkBlue,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            panel.Controls.Add(title);
+
+            var contentPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 8,
+                Padding = new Padding(5)
+            };
+
+            // Server IMAP
+            contentPanel.Controls.Add(new Label { Text = "Server IMAP:", Anchor = AnchorStyles.Left }, 0, 0);
+            txtEmailServer = new TextBox { Width = 200, Anchor = AnchorStyles.Left | AnchorStyles.Right };
+            contentPanel.Controls.Add(txtEmailServer, 1, 0);
+
+            // Porta
+            contentPanel.Controls.Add(new Label { Text = "Porta:", Anchor = AnchorStyles.Left }, 0, 1);
             txtEmailPort = new NumericUpDown { Minimum = 1, Maximum = 65535, Value = 993, Width = 200 };
-            panel.Controls.Add(txtEmailPort, 1, 2);
+            contentPanel.Controls.Add(txtEmailPort, 1, 1);
 
-            panel.Controls.Add(new Label { Text = "Username:" }, 0, 3);
-            txtEmailUsername = new TextBox { Width = 200 };
-            panel.Controls.Add(txtEmailUsername, 1, 3);
+            // Username
+            contentPanel.Controls.Add(new Label { Text = "Username:", Anchor = AnchorStyles.Left }, 0, 2);
+            txtEmailUsername = new TextBox { Width = 200, Anchor = AnchorStyles.Left | AnchorStyles.Right };
+            contentPanel.Controls.Add(txtEmailUsername, 1, 2);
 
-            panel.Controls.Add(new Label { Text = "Password:" }, 0, 4);
-            txtEmailPassword = new TextBox { UseSystemPasswordChar = true, Width = 200 };
-            panel.Controls.Add(txtEmailPassword, 1, 4);
+            // Password
+            contentPanel.Controls.Add(new Label { Text = "Password:", Anchor = AnchorStyles.Left }, 0, 3);
+            txtEmailPassword = new TextBox { UseSystemPasswordChar = true, Width = 200, Anchor = AnchorStyles.Left | AnchorStyles.Right };
+            _toolTip.SetToolTip(txtEmailPassword, "Per Gmail: usa una 'Password per le App' invece della password normale");
+            contentPanel.Controls.Add(txtEmailPassword, 1, 3);
 
-            // Impostazioni Stampante
-            panel.Controls.Add(new Label { Text = "=== IMPOSTAZIONI STAMPANTE ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 6);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
+            // Mittente sicuro
+            contentPanel.Controls.Add(new Label { Text = "Mittente sicuro:", Anchor = AnchorStyles.Left }, 0, 4);
+            txtSecureSender = new TextBox { Width = 200, Anchor = AnchorStyles.Left | AnchorStyles.Right };
+            _toolTip.SetToolTip(txtSecureSender, "Se specificato, processa solo email da questi indirizzi. Più indirizzi separati da ;");
+            contentPanel.Controls.Add(txtSecureSender, 1, 4);
 
-            panel.Controls.Add(new Label { Text = "Stampante:" }, 0, 7);
+            // Intervallo controllo
+            contentPanel.Controls.Add(new Label { Text = "Intervallo (sec):", Anchor = AnchorStyles.Left }, 0, 5);
+            txtInterval = new NumericUpDown { Minimum = 5, Maximum = 3600, Value = 10, Width = 200 };
+            contentPanel.Controls.Add(txtInterval, 1, 5);
+
+            panel.Controls.Add(contentPanel);
+            return panel;
+        }
+
+        private Panel CreatePrinterBlock()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Padding = new Padding(10)
+            };
+
+            var title = new Label
+            {
+                Text = "🖨️ Configurazione Stampante",
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.DarkBlue,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            panel.Controls.Add(title);
+
+            var contentPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 8,
+                Padding = new Padding(5)
+            };
+
+            // Stampante
+            contentPanel.Controls.Add(new Label { Text = "Stampante:", Anchor = AnchorStyles.Left }, 0, 0);
             cmbPrinter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
             LoadPrinters();
-            panel.Controls.Add(cmbPrinter, 1, 7);
+            _toolTip.SetToolTip(cmbPrinter, "Seleziona una stampante specifica o usa quella predefinita");
+            contentPanel.Controls.Add(cmbPrinter, 1, 0);
 
-            // Pulsante configurazione stampa
-            btnConfigurePrint = new Button { Text = "Configura Stampa", Width = 120 };
+            // Configura stampa
+            btnConfigurePrint = new Button { Text = "Configura Stampa", Width = 150 };
             btnConfigurePrint.Click += BtnConfigurePrint_Click;
-            panel.Controls.Add(btnConfigurePrint, 1, 8);
-
-            // Info stampa corrente
-            lblPrintInfo = new Label { Text = "Clicca 'Configura Stampa' per impostare formato, fronte/retro, etc.", ForeColor = Color.Blue, Width = 400, AutoSize = true };
-            panel.Controls.Add(lblPrintInfo, 0, 9);
-            panel.SetColumnSpan(lblPrintInfo, 2);
+            _toolTip.SetToolTip(btnConfigurePrint, "Apre il dialog di Windows per configurare formato carta, fronte/retro, etc.");
+            contentPanel.Controls.Add(btnConfigurePrint, 1, 1);
 
             // Metodo di stampa
-            panel.Controls.Add(new Label { Text = "=== METODO STAMPA ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 10);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
-
-            var printMethodGroup = new GroupBox { Text = "Scegli metodo di stampa:", Width = 400, Height = 120 };
+            contentPanel.Controls.Add(new Label { Text = "Metodo:", Anchor = AnchorStyles.Left }, 0, 2);
+            contentPanel.SetColumnSpan(contentPanel.Controls[contentPanel.Controls.Count - 1], 2);
             
-            rbPrintAuto = new RadioButton { Text = "🤖 Automatico (prova tutti i metodi)", Location = new Point(10, 20), Width = 350, Checked = true };
-            rbPrintAuto.CheckedChanged += (s, e) => { if (rbPrintAuto.Checked) ShowMethodInfo("Prova prima .NET, poi SumatraPDF, infine Windows Shell"); };
-            printMethodGroup.Controls.Add(rbPrintAuto);
+            rbPrintAuto = new RadioButton { Text = "🤖 Automatico", Width = 200, Checked = true };
+            contentPanel.Controls.Add(rbPrintAuto, 0, 3);
+            contentPanel.SetColumnSpan(rbPrintAuto, 2);
 
-            rbPrintNet = new RadioButton { Text = "🏗️ .NET PrintDocument (nativo, zero dipendenze)", Location = new Point(10, 40), Width = 350 };
-            rbPrintNet.CheckedChanged += (s, e) => { if (rbPrintNet.Checked) ShowMethodInfo("Usa solo .NET nativo - più pulito ma limitato per PDF complessi"); };
-            printMethodGroup.Controls.Add(rbPrintNet);
+            rbPrintSumatra = new RadioButton { Text = "⚡ SumatraPDF", Width = 200 };
+            contentPanel.Controls.Add(rbPrintSumatra, 0, 4);
+            contentPanel.SetColumnSpan(rbPrintSumatra, 2);
 
-            rbPrintSumatra = new RadioButton { Text = "⚡ SumatraPDF (richiede SumatraPDF.exe nella cartella app)", Location = new Point(10, 60), Width = 350 };
-            rbPrintSumatra.CheckedChanged += (s, e) => { if (rbPrintSumatra.Checked) ShowMethodInfo("Usa SumatraPDF.exe (devi copiarlo manualmente nella cartella dell'app)"); };
-            printMethodGroup.Controls.Add(rbPrintSumatra);
+            rbPrintNet = new RadioButton { Text = "🏗️ .NET", Width = 200 };
+            contentPanel.Controls.Add(rbPrintNet, 0, 5);
+            contentPanel.SetColumnSpan(rbPrintNet, 2);
 
-            rbPrintShell = new RadioButton { Text = "🪟 Windows Shell (usa app predefinita)", Location = new Point(10, 80), Width = 350 };
-            rbPrintShell.CheckedChanged += (s, e) => { if (rbPrintShell.Checked) ShowMethodInfo("Usa l'app predefinita di Windows - può aprire finestre"); };
-            printMethodGroup.Controls.Add(rbPrintShell);
+            rbPrintShell = new RadioButton { Text = "🪟 Windows Shell", Width = 200 };
+            contentPanel.Controls.Add(rbPrintShell, 0, 6);
+            contentPanel.SetColumnSpan(rbPrintShell, 2);
 
-            panel.Controls.Add(printMethodGroup, 0, 11);
-            panel.SetColumnSpan(printMethodGroup, 2);
+            // Info stampa
+            lblPrintInfo = new Label { Text = "Clicca 'Configura Stampa' per impostare formato, fronte/retro, etc.", ForeColor = Color.Blue, AutoSize = true };
+            contentPanel.Controls.Add(lblPrintInfo, 0, 7);
+            contentPanel.SetColumnSpan(lblPrintInfo, 2);
 
-            // Info metodo selezionato
-            lblMethodInfo = new Label { Text = "Metodo automatico: prova .NET, SumatraPDF, Windows Shell", ForeColor = Color.DarkBlue, Width = 400, Height = 30, AutoSize = false };
-            panel.Controls.Add(lblMethodInfo, 0, 12);
-            panel.SetColumnSpan(lblMethodInfo, 2);
+            panel.Controls.Add(contentPanel);
+            return panel;
+        }
 
-            // Modalità conferma stampa
-            panel.Controls.Add(new Label { Text = "=== MODALITÀ STAMPA ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 13);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
+        private Panel CreateOptionsBlock()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Padding = new Padding(10)
+            };
 
-            var confirmGroup = new GroupBox { Text = "Conferma prima di stampare:", Width = 400, Height = 120 };
+            var title = new Label
+            {
+                Text = "⚙️ Opzioni e Conferme",
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.DarkBlue,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            panel.Controls.Add(title);
+
+            var contentPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 10,
+                Padding = new Padding(5)
+            };
+
+            // Conferma stampa
+            contentPanel.Controls.Add(new Label { Text = "Conferma:", Anchor = AnchorStyles.Left }, 0, 0);
+            contentPanel.SetColumnSpan(contentPanel.Controls[contentPanel.Controls.Count - 1], 2);
             
-            rbConfirmAuto = new RadioButton { Text = "🚀 Stampa automatica (nessuna conferma)", Location = new Point(10, 20), Width = 350, Checked = true };
-            rbConfirmAuto.CheckedChanged += (s, e) => { if (rbConfirmAuto.Checked) { ShowConfirmInfo("Stampa automaticamente senza chiedere conferma"); txtTimeout.Enabled = false; } };
-            confirmGroup.Controls.Add(rbConfirmAuto);
+            rbConfirmAuto = new RadioButton { Text = "🤖 Automatica", Width = 200, Checked = true };
+            rbConfirmAuto.CheckedChanged += (s, e) => { if (rbConfirmAuto.Checked) ShowConfirmInfo("Stampa diretta"); };
+            contentPanel.Controls.Add(rbConfirmAuto, 0, 1);
+            contentPanel.SetColumnSpan(rbConfirmAuto, 2);
 
-            rbConfirmTimed = new RadioButton { Text = "⏱️ Popup con timer (stampa automatica se non si risponde)", Location = new Point(10, 40), Width = 350 };
-            rbConfirmTimed.CheckedChanged += (s, e) => { if (rbConfirmTimed.Checked) { ShowConfirmInfo("Mostra popup, se non rispondi entro X secondi stampa automaticamente"); txtTimeout.Enabled = true; } };
-            confirmGroup.Controls.Add(rbConfirmTimed);
+            rbConfirmTimed = new RadioButton { Text = "⏰ Con timer", Width = 200 };
+            rbConfirmTimed.CheckedChanged += (s, e) => { if (rbConfirmTimed.Checked) ShowConfirmInfo("Popup con timer"); };
+            contentPanel.Controls.Add(rbConfirmTimed, 0, 2);
+            contentPanel.SetColumnSpan(rbConfirmTimed, 2);
 
-            rbConfirmManual = new RadioButton { Text = "✋ Conferma obbligatoria (attende sempre risposta utente)", Location = new Point(10, 60), Width = 350 };
-            rbConfirmManual.CheckedChanged += (s, e) => { if (rbConfirmManual.Checked) { ShowConfirmInfo("Mostra sempre popup e attende conferma o rifiuto dell'utente"); txtTimeout.Enabled = false; } };
-            confirmGroup.Controls.Add(rbConfirmManual);
+            rbConfirmManual = new RadioButton { Text = "👤 Manuale", Width = 200 };
+            rbConfirmManual.CheckedChanged += (s, e) => { if (rbConfirmManual.Checked) ShowConfirmInfo("Popup obbligatorio"); };
+            contentPanel.Controls.Add(rbConfirmManual, 0, 3);
+            contentPanel.SetColumnSpan(rbConfirmManual, 2);
 
-            // Timeout per modalità timer
-            var lblTimeout = new Label { Text = "Timeout (sec):", Location = new Point(10, 85), Width = 80 };
-            confirmGroup.Controls.Add(lblTimeout);
-            
-            txtTimeout = new NumericUpDown { Location = new Point(95, 83), Width = 60, Minimum = 5, Maximum = 300, Value = 15, Enabled = false };
-            confirmGroup.Controls.Add(txtTimeout);
+            // Timeout conferma
+            contentPanel.Controls.Add(new Label { Text = "Timeout (sec):", Anchor = AnchorStyles.Left }, 0, 4);
+            txtTimeout = new NumericUpDown { Minimum = 5, Maximum = 300, Value = 15, Width = 200 };
+            contentPanel.Controls.Add(txtTimeout, 1, 4);
 
-            panel.Controls.Add(confirmGroup, 0, 14);
-            panel.SetColumnSpan(confirmGroup, 2);
+            // Opzioni
+            chkSendConfirmation = new CheckBox { Text = "📧 Invia conferma email", Width = 200 };
+            _toolTip.SetToolTip(chkSendConfirmation, "Invia email di conferma al mittente dopo la stampa");
+            contentPanel.Controls.Add(chkSendConfirmation, 0, 5);
+            contentPanel.SetColumnSpan(chkSendConfirmation, 2);
 
-            // Info conferma selezionata
-            lblConfirmInfo = new Label { Text = "Stampa automaticamente senza chiedere conferma", ForeColor = Color.DarkGreen, Width = 400, Height = 30, AutoSize = false };
-            panel.Controls.Add(lblConfirmInfo, 0, 15);
-            panel.SetColumnSpan(lblConfirmInfo, 2);
+            chkDeleteAfterPrint = new CheckBox { Text = "🗑️ Elimina email dopo stampa", Width = 200 };
+            _toolTip.SetToolTip(chkDeleteAfterPrint, "Elimina l'email dal server dopo aver stampato gli allegati");
+            contentPanel.Controls.Add(chkDeleteAfterPrint, 0, 6);
+            contentPanel.SetColumnSpan(chkDeleteAfterPrint, 2);
 
-            // Impostazioni Comportamento
-            panel.Controls.Add(new Label { Text = "=== COMPORTAMENTO ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 16);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
+            chkAutoStart = new CheckBox { Text = "🚀 Avvio automatico Windows", Width = 200 };
+            _toolTip.SetToolTip(chkAutoStart, "Avvia automaticamente l'applicazione all'avvio di Windows");
+            contentPanel.Controls.Add(chkAutoStart, 0, 7);
+            contentPanel.SetColumnSpan(chkAutoStart, 2);
 
-            chkSendConfirmation = new CheckBox { Text = "Invia email di conferma stampa", Width = 300 };
-            panel.Controls.Add(chkSendConfirmation, 0, 17);
-            panel.SetColumnSpan(chkSendConfirmation, 2);
+            // Info conferma
+            lblConfirmInfo = new Label { Text = "Modalità conferma stampa", ForeColor = Color.Blue, AutoSize = true };
+            contentPanel.Controls.Add(lblConfirmInfo, 0, 8);
+            contentPanel.SetColumnSpan(lblConfirmInfo, 2);
 
-            chkDeleteAfterPrint = new CheckBox { Text = "Elimina email dopo stampa", Width = 300 };
-            panel.Controls.Add(chkDeleteAfterPrint, 0, 18);
-            panel.SetColumnSpan(chkDeleteAfterPrint, 2);
+            panel.Controls.Add(contentPanel);
+            return panel;
+        }
 
-            chkAutoStart = new CheckBox { Text = "Avvia automaticamente con Windows", Width = 300 };
-            panel.Controls.Add(chkAutoStart, 0, 19);
-            panel.SetColumnSpan(chkAutoStart, 2);
+        private Panel CreateLogBlock()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BorderStyle = BorderStyle.FixedSingle,
+                Padding = new Padding(10)
+            };
 
-            panel.Controls.Add(new Label { Text = "Intervallo controllo (secondi):" }, 0, 20);
-            txtInterval = new NumericUpDown { Minimum = 5, Maximum = 300, Value = 10, Width = 200 };
-            panel.Controls.Add(txtInterval, 1, 20);
+            var title = new Label
+            {
+                Text = "📋 Log Attività",
+                Font = new Font("Segoe UI", 12, FontStyle.Bold),
+                ForeColor = Color.DarkBlue,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            panel.Controls.Add(title);
 
-            // Pulsanti
-            var buttonPanel = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Width = 400, Height = 40 };
-            
-            btnSave = new Button { Text = "Salva Impostazioni", Width = 120 };
+            // Area log
+            txtLog = new TextBox
+            {
+                Multiline = true,
+                ScrollBars = ScrollBars.Vertical,
+                ReadOnly = true,
+                Font = new Font("Consolas", 9),
+                BackColor = Color.Black,
+                ForeColor = Color.LightGreen,
+                Dock = DockStyle.Fill
+            };
+            panel.Controls.Add(txtLog);
+
+            // Pulsanti sotto il log (da sinistra a destra)
+            var buttonPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Bottom,
+                Height = 40,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(5)
+            };
+
+            btnSave = new Button { Text = "💾 Salva Configurazione", Width = 150, Height = 30 };
             btnSave.Click += BtnSave_Click;
             buttonPanel.Controls.Add(btnSave);
 
-            btnStart = new Button { Text = "Avvia Servizio", Width = 120 };
+            btnStart = new Button { Text = "▶️ Avvia Servizio", Width = 120, Height = 30 };
             btnStart.Click += BtnStart_Click;
             buttonPanel.Controls.Add(btnStart);
 
-            btnStop = new Button { Text = "Ferma Servizio", Width = 120, Enabled = false };
+            btnStop = new Button { Text = "⏹️ Ferma Servizio", Width = 120, Height = 30 };
             btnStop.Click += BtnStop_Click;
             buttonPanel.Controls.Add(btnStop);
 
-            var btnAbout = new Button { Text = "ℹ️ Info", Width = 60 };
+            var btnCheckEmail = new Button { Text = "📧 Controlla Email", Width = 120, Height = 30 };
+            btnCheckEmail.Click += async (s, e) => await ForceEmailCheck();
+            buttonPanel.Controls.Add(btnCheckEmail);
+
+            var btnResetTimestamp = new Button { Text = "🔄 Reset Timestamp", Width = 120, Height = 30 };
+            btnResetTimestamp.Click += (s, e) => ResetEmailTimestamp();
+            buttonPanel.Controls.Add(btnResetTimestamp);
+
+            var btnOpenLog = new Button { Text = "📂 Apri Log", Width = 100, Height = 30 };
+            btnOpenLog.Click += (s, e) => OpenTodayLog();
+            buttonPanel.Controls.Add(btnOpenLog);
+
+            var btnAbout = new Button { Text = "ℹ️ Info", Width = 80, Height = 30 };
             btnAbout.Click += BtnAbout_Click;
             buttonPanel.Controls.Add(btnAbout);
 
-            panel.Controls.Add(buttonPanel, 0, 22);
-            panel.SetColumnSpan(buttonPanel, 2);
-
-            // Status e Log
-            panel.Controls.Add(new Label { Text = "=== STATUS E LOG ===", Font = new Font("Arial", 10, FontStyle.Bold) }, 0, 23);
-            panel.SetColumnSpan(panel.Controls[panel.Controls.Count - 1], 2);
-
-            lblStatus = new Label { Text = "Servizio fermo", ForeColor = Color.Red, Width = 400 };
-            panel.Controls.Add(lblStatus, 0, 24);
-            panel.SetColumnSpan(lblStatus, 2);
-
-            txtLog = new TextBox 
-            { 
-                Multiline = true, 
-                ScrollBars = ScrollBars.Vertical, 
-                ReadOnly = true, 
-                Height = 100, 
-                Width = 400 
+            // Status label
+            lblStatus = new Label
+            {
+                Text = "⏸️ Servizio fermo",
+                ForeColor = Color.Red,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold),
+                AutoSize = true,
+                Anchor = AnchorStyles.Right
             };
-            panel.Controls.Add(txtLog, 0, 25);
-            panel.SetColumnSpan(txtLog, 2);
+            buttonPanel.Controls.Add(lblStatus);
 
-            this.Controls.Add(panel);
+            panel.Controls.Add(buttonPanel);
+
+            return panel;
         }
 
         private void InitializeTrayIcon()
         {
             _trayIcon = new NotifyIcon()
             {
-                Icon = SystemIcons.Application,
+                Icon = CreateAppIcon(),
                 Text = $"{AppInfo.Name} v{AppInfo.Version}",
                 Visible = true
             };
 
             var contextMenu = new ContextMenuStrip();
+            contextMenu.AutoClose = true; // Importante: chiude automaticamente
+            contextMenu.ShowImageMargin = false; // Rimuove margine icone
+            contextMenu.Width = 250; // Larghezza fissa per vedere tutto
+            
             contextMenu.Items.Add("📧 Controlla Email Ora", null, async (s, e) => await ForceEmailCheck());
-            contextMenu.Items.Add("📄 Mostra Finestra", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; });
+            contextMenu.Items.Add("📄 Mostra Finestra", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; this.BringToFront(); });
             contextMenu.Items.Add("🔄 Riavvia Servizio", null, async (s, e) => await RestartService());
             contextMenu.Items.Add("-");
+            contextMenu.Items.Add("⏰ Reset Timestamp Email", null, (s, e) => ResetEmailTimestamp());
             contextMenu.Items.Add("ℹ️ Info Stato", null, (s, e) => ShowStatusInfo());
             contextMenu.Items.Add("📁 Apri Cartella Log", null, (s, e) => OpenLogFolder());
+            contextMenu.Items.Add("📄 Mostra Log di Oggi", null, (s, e) => OpenTodayLog());
             contextMenu.Items.Add("-");
             contextMenu.Items.Add($"👨‍💻 About {AppInfo.Name}", null, (s, e) => ShowAboutDialog());
-            contextMenu.Items.Add("❌ Esci", null, (s, e) => { Application.Exit(); });
+            contextMenu.Items.Add("❌ Esci Completamente", null, (s, e) => ExitApplication());
 
             _trayIcon.ContextMenuStrip = contextMenu;
-            _trayIcon.DoubleClick += (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; };
+            _trayIcon.DoubleClick += (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; this.BringToFront(); };
+        }
+
+        private void ExitApplication()
+        {
+            try
+            {
+                var result = MessageBox.Show(
+                    "Sei sicuro di voler chiudere completamente Email Print Service?\n\nIl servizio smetterà di monitorare le email.",
+                    "Conferma Chiusura",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    // Ferma il servizio
+                    if (_isServiceRunning)
+                    {
+                        _service?.Stop();
+                    }
+                    
+                    // Chiusura completa
+                    _trayIcon.Visible = false;
+                    _toolTip?.Dispose();
+                    _trayIcon?.Dispose();
+                    Application.Exit();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore durante la chiusura: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                _toolTip?.Dispose();
+                _trayIcon?.Dispose();
+                Application.Exit(); // Forza la chiusura in caso di errore
+            }
+        }
+
+        private Icon CreateAppIcon()
+        {
+            try
+            {
+                // Prova a caricare l'icona dal file app.ico
+                var iconPath = Path.Combine(Application.StartupPath, "app.ico");
+                if (File.Exists(iconPath))
+                {
+                    var icon = new Icon(iconPath);
+                    // Verifica che l'icona sia valida
+                    if (icon.Width > 0 && icon.Height > 0)
+                    {
+                        return icon;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log dell'errore per debug
+                System.Diagnostics.Debug.WriteLine($"Errore caricamento app.ico: {ex.Message}");
+            }
+            
+            // Fallback: crea un'icona personalizzata 16x16 per la system tray
+            var bitmap = new Bitmap(16, 16);
+            using (var g = Graphics.FromImage(bitmap))
+            {
+                // Sfondo blu
+                g.FillRectangle(Brushes.DodgerBlue, 0, 0, 16, 16);
+                
+                // Bordo bianco
+                g.DrawRectangle(Pens.White, 0, 0, 15, 15);
+                
+                // Simbolo stampante semplificato (rettangoli bianchi)
+                g.FillRectangle(Brushes.White, 3, 4, 10, 3);  // Parte superiore
+                g.FillRectangle(Brushes.White, 2, 7, 12, 5);  // Corpo stampante
+                g.FillRectangle(Brushes.White, 4, 9, 8, 1);   // Carta
+                
+                // Punto rosso per indicare "email"
+                g.FillEllipse(Brushes.Red, 12, 2, 2, 2);
+                
+                return Icon.FromHandle(bitmap.GetHicon());
+            }
         }
 
         // Event handlers e metodi principali
@@ -492,6 +761,7 @@ GitHub: {AppInfo.GitHubUrl}",
                 txtEmailPort.Value = _settings.EmailPort;
                 txtEmailUsername.Text = _settings.EmailUsername;
                 txtEmailPassword.Text = _settings.EmailPassword;
+                txtSecureSender.Text = _settings.SecureSender; // Carica il mittente sicuro
                 
                 var printerName = _settings.PrinterName;
                 if (string.IsNullOrEmpty(printerName))
@@ -560,14 +830,7 @@ GitHub: {AppInfo.GitHubUrl}",
             }
         }
 
-        private void ShowMethodInfo(string info)
-        {
-            if (lblMethodInfo != null)
-            {
-                lblMethodInfo.Text = info;
-                lblMethodInfo.ForeColor = Color.DarkBlue;
-            }
-        }
+
 
         private void ShowConfirmInfo(string info)
         {
@@ -680,6 +943,7 @@ GitHub: {AppInfo.GitHubUrl}",
                 _settings.EmailPort = (int)txtEmailPort.Value;
                 _settings.EmailUsername = txtEmailUsername.Text;
                 _settings.EmailPassword = txtEmailPassword.Text;
+                _settings.SecureSender = txtSecureSender.Text; // Salva il mittente sicuro
                 _settings.PrinterName = cmbPrinter.SelectedIndex == 0 ? "" : cmbPrinter.Text;
                 _settings.SendConfirmation = chkSendConfirmation.Checked;
                 _settings.DeleteAfterPrint = chkDeleteAfterPrint.Checked;
@@ -761,14 +1025,35 @@ GitHub: {AppInfo.GitHubUrl}",
 
         private void BtnStop_Click(object sender, EventArgs e)
         {
-            btnStart.Enabled = true;
+            btnStart.Enabled = false; // Disabilita temporaneamente per evitare doppi click
             btnStop.Enabled = false;
             _isServiceRunning = false;
-            lblStatus.Text = "Servizio fermo";
-            lblStatus.ForeColor = Color.Red;
+            lblStatus.Text = "Servizio in arresto...";
+            lblStatus.ForeColor = Color.Orange;
 
-            _service?.Stop();
-            LogMessage("Servizio fermato");
+            try
+            {
+                // Rimuovi gli event handler PRIMA di fermare il servizio
+                if (_service != null)
+                {
+                    _service.OnStatusChanged -= Service_OnStatusChanged;
+                    _service.OnLogMessage -= Service_OnLogMessage;
+                    
+                    _service.Stop();
+                    LogMessage("🛑 Servizio fermato");
+                }
+                
+                lblStatus.Text = "Servizio fermo";
+                lblStatus.ForeColor = Color.Red;
+                btnStart.Enabled = true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage($"❌ Errore durante l'arresto: {ex.Message}");
+                lblStatus.Text = "Errore arresto servizio";
+                lblStatus.ForeColor = Color.Red;
+                btnStart.Enabled = true;
+            }
         }
 
         private void BtnAbout_Click(object sender, EventArgs e)
@@ -853,11 +1138,18 @@ GitHub: {AppInfo.GitHubUrl}",
                     cmbPrinter.SelectedIndex == 0 ? "" : cmbPrinter.Text,
                     chkSendConfirmation.Checked,
                     chkDeleteAfterPrint.Checked,
-                    (int)txtInterval.Value
+                    (int)txtInterval.Value,
+                    txtSecureSender.Text // Passa il mittente sicuro
                 );
 
+                // Rimuovi vecchi event handler per evitare duplicati
+                _service.OnStatusChanged -= Service_OnStatusChanged;
+                _service.OnLogMessage -= Service_OnLogMessage;
+                
+                // Aggiungi nuovi event handler
                 _service.OnStatusChanged += Service_OnStatusChanged;
                 _service.OnLogMessage += Service_OnLogMessage;
+
                 _service.UpdatePrintSettings();
 
                 await _service.StartAsync();
@@ -875,12 +1167,15 @@ GitHub: {AppInfo.GitHubUrl}",
             var status = _isServiceRunning ? "🟢 ATTIVO" : "🔴 FERMO";
             var nextCheck = _isServiceRunning ? $"Prossimo controllo tra: {_settings.CheckInterval} secondi" : "Servizio non attivo";
             var method = GetCurrentPrintMethod();
+            var lastProcessed = _isServiceRunning ? _service.GetLastProcessedTime().ToString("dd/MM/yyyy HH:mm:ss") : "Non disponibile";
             
             var info = $"Stato Servizio: {status}\n" +
                       $"Email: {_settings.EmailUsername}\n" +
                       $"Intervallo: {_settings.CheckInterval} secondi\n" +
                       $"Metodo Stampa: {method}\n" +
-                      $"{nextCheck}";
+                      $"Ultima email processata: {lastProcessed}\n" +
+                      $"{nextCheck}\n\n" +
+                      $"📁 Log salvati in:\n%LOCALAPPDATA%\\EmailPrintService\\";
             
             MessageBox.Show(info, "Stato Email Print Service", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -905,6 +1200,8 @@ GitHub: {AppInfo.GitHubUrl}",
                 if (Directory.Exists(logFolder))
                 {
                     Process.Start("explorer.exe", logFolder);
+                    LogMessage($"📁 Aperta cartella log: {logFolder}");
+                    LogMessage($"📄 File log di oggi: log_{DateTime.Now:yyyy-MM-dd}.txt");
                 }
                 else
                 {
@@ -914,6 +1211,55 @@ GitHub: {AppInfo.GitHubUrl}",
             catch (Exception ex)
             {
                 MessageBox.Show($"Impossibile aprire cartella: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async void ResetEmailTimestamp()
+        {
+            try
+            {
+                var result = MessageBox.Show(
+                    "Questo resetterà il timestamp dell'ultima email processata.\n\n" +
+                    "ATTENZIONE: Dopo il reset, il servizio riprocesserà tutte le email ricevute dopo l'ultima email presente nella casella.\n\n" +
+                    "Vuoi continuare?",
+                    "Reset Timestamp Email",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    await _service.ResetLastProcessedTime();
+                    LogMessage("⏰ Timestamp email resettato - verranno processate tutte le email ricevute dopo l'ultima email presente");
+                    _trayIcon.ShowBalloonTip(3000, "Timestamp Reset", "Timestamp resettato con successo. Il servizio processerà tutte le email ricevute dopo l'ultima email presente.", ToolTipIcon.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore nel reset timestamp: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void OpenTodayLog()
+        {
+            try
+            {
+                var logFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmailPrintService");
+                var logFile = Path.Combine(logFolder, "log.txt");
+                
+                if (File.Exists(logFile))
+                {
+                    Process.Start("notepad.exe", logFile);
+                    LogMessage($"📄 Aperto log: {logFile}");
+                }
+                else
+                {
+                    MessageBox.Show("File log non ancora creato.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Impossibile aprire log: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -944,15 +1290,51 @@ GitHub: {AppInfo.GitHubUrl}",
         private void LogMessage(string message)
         {
             var logEntry = $"{DateTime.Now:HH:mm:ss} - {message}";
+            
+            // Log nell'interfaccia
             txtLog.AppendText(logEntry + Environment.NewLine);
             txtLog.SelectionStart = txtLog.Text.Length;
             txtLog.ScrollToCaret();
+            
+            // Log su file singolo che si svuota ad ogni avvio
+            try
+            {
+                var logFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmailPrintService");
+                Directory.CreateDirectory(logFolder);
+                var logFile = Path.Combine(logFolder, "log.txt");
+                
+                var fileLogEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}";
+                File.AppendAllText(logFile, fileLogEntry + Environment.NewLine);
+            }
+            catch
+            {
+                // Ignora errori di scrittura log su file
+            }
+        }
+
+        private void ClearLogFile()
+        {
+            try
+            {
+                var logFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmailPrintService");
+                Directory.CreateDirectory(logFolder);
+                var logFile = Path.Combine(logFolder, "log.txt");
+                
+                // Svuota il file di log all'avvio
+                if (File.Exists(logFile))
+                {
+                    File.WriteAllText(logFile, string.Empty);
+                }
+            }
+            catch
+            {
+                // Ignora errori di pulizia log
+            }
         }
 
         protected override void SetVisibleCore(bool value)
         {
             base.SetVisibleCore(value);
-            if (!value) this.Hide();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -965,7 +1347,8 @@ GitHub: {AppInfo.GitHubUrl}",
             }
             else
             {
-                _trayIcon.Dispose();
+                _toolTip?.Dispose();
+                _trayIcon?.Dispose();
                 _service?.Stop();
                 base.OnFormClosing(e);
             }
@@ -982,6 +1365,10 @@ GitHub: {AppInfo.GitHubUrl}",
         private bool _sendConfirmation, _deleteAfterPrint, _isRunning;
         private string _tempFolder;
         private PrintSettings _printSettings;
+        private DateTime _lastProcessedTime;
+        private CancellationTokenSource _cancellationTokenSource; // Per fermare il loop pulitamente
+        private string _secureSender; // Mittente sicuro (opzionale)
+        private readonly object _imapLock = new object(); // Lock per sincronizzare l'accesso a ImapClient
 
         public event Action<string, bool> OnStatusChanged;
         public event Action<string> OnLogMessage;
@@ -991,10 +1378,81 @@ GitHub: {AppInfo.GitHubUrl}",
             _tempFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EmailPrintService");
             Directory.CreateDirectory(_tempFolder);
             _printSettings = PrintSettings.Load();
+            
+            // Carica l'ultimo timestamp processato o usa ora se è la prima volta
+            _lastProcessedTime = LoadLastProcessedTime();
+        }
+
+        private DateTime LoadLastProcessedTime()
+        {
+            try
+            {
+                var timestampFile = Path.Combine(_tempFolder, "last_processed.txt");
+                if (File.Exists(timestampFile))
+                {
+                    var timestampText = File.ReadAllText(timestampFile);
+                    if (DateTime.TryParse(timestampText, out var savedTime))
+                    {
+                        return savedTime;
+                    }
+                }
+            }
+            catch { }
+            
+            // Se non c'è file o c'è errore, usa ora come default
+            // Il timestamp verrà aggiornato durante il primo controllo email
+            return DateTime.Now;
+        }
+
+        private async Task<DateTime> GetLatestEmailTime()
+        {
+            try
+            {
+                var tempClient = new ImapClient();
+                await tempClient.ConnectAsync(_emailServer, _emailPort, true);
+                await tempClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                
+                var inbox = tempClient.Inbox;
+                await inbox.OpenAsync(FolderAccess.ReadWrite);
+                
+                if (inbox.Count > 0)
+                {
+                    // Prendi l'ultima email (la più recente)
+                    var lastMessage = await inbox.GetMessageAsync(inbox.Count - 1);
+                    var latestTime = lastMessage.Date.DateTime;
+                    
+                    await tempClient.DisconnectAsync(true);
+                    tempClient.Dispose();
+                    
+                    return latestTime;
+                }
+                
+                await tempClient.DisconnectAsync(true);
+                tempClient.Dispose();
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"⚠️ Errore nel leggere l'ultima email: {ex.Message}");
+            }
+            
+            // Se non riesce a leggere, usa ora
+            return DateTime.Now;
+        }
+
+        private void SaveLastProcessedTime(DateTime timestamp)
+        {
+            try
+            {
+                var timestampFile = Path.Combine(_tempFolder, "last_processed.txt");
+                File.WriteAllText(timestampFile, timestamp.ToString("yyyy-MM-dd HH:mm:ss"));
+                _lastProcessedTime = timestamp;
+            }
+            catch { }
         }
 
         public void Configure(string server, int port, string username, string password, 
-                            string printer, bool sendConfirmation, bool deleteAfterPrint, int interval)
+                            string printer, bool sendConfirmation, bool deleteAfterPrint, int interval,
+                            string secureSender) // Aggiunto parametro secureSender
         {
             _emailServer = server;
             _emailPort = port;
@@ -1004,6 +1462,7 @@ GitHub: {AppInfo.GitHubUrl}",
             _sendConfirmation = sendConfirmation;
             _deleteAfterPrint = deleteAfterPrint;
             _checkInterval = interval * 1000;
+            _secureSender = secureSender; // Salva il mittente sicuro
             
             _printSettings = PrintSettings.Load();
         }
@@ -1013,25 +1472,53 @@ GitHub: {AppInfo.GitHubUrl}",
             _printSettings = PrintSettings.Load();
         }
 
-        public async Task ForceEmailCheck()
+        public Task ForceEmailCheck()
         {
-            if (!_isRunning || _imapClient?.IsConnected != true)
+            if (!_isRunning)
             {
-                throw new Exception("Servizio non avviato o non connesso");
+                throw new Exception("Servizio non avviato");
+            }
+
+            if (_cancellationTokenSource?.Token.IsCancellationRequested == true)
+            {
+                throw new Exception("Servizio in fase di arresto");
             }
 
             try
             {
                 OnLogMessage?.Invoke("🔍 Controllo email forzato dall'utente");
-                var inbox = _imapClient.Inbox;
                 
-                if (!inbox.IsOpen)
+                // Usa lock per evitare conflitti con il loop principale
+                lock (_imapLock)
                 {
-                    await inbox.OpenAsync(FolderAccess.ReadWrite);
+                    if (_imapClient?.IsConnected != true)
+                    {
+                        OnLogMessage?.Invoke("🔄 Riconnessione IMAP necessaria...");
+                        _imapClient = new ImapClient();
+                        _imapClient.ConnectAsync(_emailServer, _emailPort, true).Wait();
+                        _imapClient.AuthenticateAsync(_emailUsername, _emailPassword).Wait();
+                        OnLogMessage?.Invoke("✅ Riconnessione IMAP completata");
+                    }
+                    
+                    var inbox = _imapClient.Inbox;
+                    
+                    if (!inbox.IsOpen)
+                    {
+                        inbox.OpenAsync(FolderAccess.ReadWrite).Wait();
+                    }
+                    else if (inbox.Access != FolderAccess.ReadWrite)
+                    {
+                        // Se la cartella è aperta in modalità diversa, riaprila in read-write
+                        inbox.CloseAsync().Wait();
+                        inbox.OpenAsync(FolderAccess.ReadWrite).Wait();
+                    }
+                    
+                    OnLogMessage?.Invoke($"⏰ Cercando email ricevute dopo: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+                    ProcessNewEmails(inbox).Wait();
+                    OnLogMessage?.Invoke("✅ Controllo email forzato completato");
                 }
                 
-                await ProcessNewEmails(inbox);
-                OnLogMessage?.Invoke("✅ Controllo email forzato completato");
+                return Task.CompletedTask;
             }
             catch (Exception ex)
             {
@@ -1043,40 +1530,128 @@ GitHub: {AppInfo.GitHubUrl}",
         public async Task StartAsync()
         {
             _isRunning = true;
+            _cancellationTokenSource = new CancellationTokenSource(); // Nuovo token per questo avvio
             OnStatusChanged?.Invoke("Connessione in corso...", false);
 
             try
             {
+                OnLogMessage?.Invoke($"🔗 Connettendo a {_emailServer}:{_emailPort}...");
+                OnLogMessage?.Invoke($"⏰ Servizio avviato alle: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
+                
                 _imapClient = new ImapClient();
                 await _imapClient.ConnectAsync(_emailServer, _emailPort, true);
-                await _imapClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                
+                OnLogMessage?.Invoke($"✅ Connesso! Autenticando con {_emailUsername}...");
+                
+                try
+                {
+                    await _imapClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                    OnLogMessage?.Invoke("✅ Autenticazione IMAP riuscita!");
+                }
+                catch (AuthenticationException authEx)
+                {
+                    OnLogMessage?.Invoke($"❌ ERRORE AUTENTICAZIONE: {authEx.Message}");
+                    OnLogMessage?.Invoke("🔑 SUGGERIMENTO: Se usi Gmail, serve una 'Password per le App':");
+                    OnLogMessage?.Invoke("   1. Vai su https://myaccount.google.com/");
+                    OnLogMessage?.Invoke("   2. Sicurezza → Verifica in due passaggi (deve essere ATTIVA)");
+                    OnLogMessage?.Invoke("   3. Password per le app → Genera nuova password");
+                    OnLogMessage?.Invoke("   4. Usa quella password invece della tua password normale");
+                    throw new Exception($"Autenticazione fallita: {authEx.Message}. Controlla username/password o usa Password per le App per Gmail.");
+                }
+
+                // Inizializza il timestamp con l'ultima email presente
+                var inbox = _imapClient.Inbox;
+                await inbox.OpenAsync(FolderAccess.ReadWrite);
+                OnLogMessage?.Invoke($"📧 Monitoraggio inbox: {inbox.Count} messaggi totali presenti");
+                
+                if (inbox.Count > 0)
+                {
+                    var lastMessage = await inbox.GetMessageAsync(inbox.Count - 1);
+                    _lastProcessedTime = lastMessage.Date.DateTime;
+                    SaveLastProcessedTime(_lastProcessedTime);
+                    OnLogMessage?.Invoke($"📧 Ultima email presente: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+                    OnLogMessage?.Invoke($"🔍 Verranno processate solo le email ricevute DOPO questo orario");
+                }
+                else
+                {
+                    _lastProcessedTime = DateTime.Now;
+                    SaveLastProcessedTime(_lastProcessedTime);
+                    OnLogMessage?.Invoke($"📧 Inbox vuota - timestamp impostato a: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+                }
 
                 if (_sendConfirmation)
                 {
+                    OnLogMessage?.Invoke("🔗 Connettendo al server SMTP...");
                     _smtpClient = new SmtpClient();
                     var smtpServer = _emailServer.Replace("imap", "smtp");
                     var smtpPort = _emailPort == 993 ? 587 : 25;
-                    await _smtpClient.ConnectAsync(smtpServer, smtpPort, false);
-                    await _smtpClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                    
+                    await _smtpClient.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+                    
+                    try
+                    {
+                        await _smtpClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                        OnLogMessage?.Invoke("✅ Autenticazione SMTP riuscita!");
+                    }
+                    catch (AuthenticationException authEx)
+                    {
+                        OnLogMessage?.Invoke($"❌ ERRORE AUTENTICAZIONE SMTP: {authEx.Message}");
+                        throw new Exception($"Autenticazione SMTP fallita: {authEx.Message}");
+                    }
                 }
 
                 OnStatusChanged?.Invoke("Connesso - In ascolto", true);
-                OnLogMessage?.Invoke("Servizio avviato con successo");
-
-                var inbox = _imapClient.Inbox;
-                await inbox.OpenAsync(FolderAccess.ReadWrite);
-
-                while (_isRunning)
+                OnLogMessage?.Invoke("🚀 Servizio avviato con successo");
+                OnLogMessage?.Invoke($"⏰ Controllo automatico email ogni {_checkInterval/1000} secondi");
+                if (!string.IsNullOrEmpty(_secureSender))
                 {
-                    await ProcessNewEmails(inbox);
-                    await Task.Delay(_checkInterval);
+                    OnLogMessage?.Invoke($"🔒 Mittente sicuro configurato: {_secureSender}");
                 }
+                else
+                {
+                    OnLogMessage?.Invoke($"🔓 Nessun mittente sicuro configurato - processa tutte le email");
+                }
+
+                // Loop principale con cancellation token
+                while (_isRunning && !_cancellationTokenSource.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        lock (_imapLock)
+                        {
+                            ProcessNewEmails(inbox).Wait();
+                        }
+                        
+                        await Task.Delay(_checkInterval, _cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Task.Delay è stato cancellato, uscire dal loop
+                        OnLogMessage?.Invoke("🛑 Loop servizio cancellato");
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        OnLogMessage?.Invoke($"❌ Errore nel loop principale: {ex.Message}");
+                        // Aspetta un po' prima di riprovare
+                        await Task.Delay(5000, _cancellationTokenSource.Token);
+                    }
+                }
+                
+                OnLogMessage?.Invoke("🔚 Loop servizio terminato");
             }
             catch (Exception ex)
             {
-                OnStatusChanged?.Invoke($"Errore: {ex.Message}", false);
-                OnLogMessage?.Invoke($"Errore: {ex.Message}");
+                var errorMsg = $"Errore: {ex.Message}";
+                OnStatusChanged?.Invoke(errorMsg, false);
+                OnLogMessage?.Invoke($"❌ {errorMsg}");
                 throw;
+            }
+            finally
+            {
+                // Cleanup sempre eseguito
+                OnLogMessage?.Invoke("🧹 Cleanup risorse in corso...");
+                CleanupResources();
             }
         }
 
@@ -1084,17 +1659,76 @@ GitHub: {AppInfo.GitHubUrl}",
         {
             try
             {
-                var uids = await inbox.SearchAsync(SearchQuery.NotSeen);
+                // Verifica che la cartella sia aperta in modalità corretta
+                if (inbox.Access != FolderAccess.ReadWrite)
+                {
+                    await inbox.OpenAsync(FolderAccess.ReadWrite);
+                }
                 
-                foreach (var uid in uids)
+                // Cerca TUTTE le email nell'inbox (non solo quelle non lette)
+                // Questo risolve il problema delle email che potrebbero essere già marcate come "lette"
+                var allUids = await inbox.SearchAsync(SearchQuery.All);
+                
+                if (allUids.Count > 0)
+                {
+                    // Conta quante email sono più recenti dell'ultimo timestamp
+                    int newEmailsCount = 0;
+                    foreach (var uid in allUids)
+                    {
+                        var message = await inbox.GetMessageAsync(uid);
+                        if (message.Date.DateTime > _lastProcessedTime)
+                        {
+                            newEmailsCount++;
+                        }
+                    }
+                    
+                    if (newEmailsCount > 0)
+                    {
+                        OnLogMessage?.Invoke($"📧 Trovate {newEmailsCount} nuove email da processare");
+                    }
+                }
+                
+                DateTime? latestEmailTime = null;
+                int processedCount = 0;
+                int skippedCount = 0;
+                int unauthorizedCount = 0;
+                
+                foreach (var uid in allUids)
                 {
                     var message = await inbox.GetMessageAsync(uid);
+                    
+                    // Controlla se l'email è più recente dell'ultimo timestamp processato
+                    var emailTime = message.Date.DateTime;
+                    
+                    if (emailTime <= _lastProcessedTime)
+                    {
+                        skippedCount++;
+                        // Non logghiamo ogni email saltata per evitare spam nel log
+                        continue;
+                    }
+                    
+                    OnLogMessage?.Invoke($"📧 Processando email del {emailTime:dd/MM/yyyy HH:mm:ss} (ricevuta dopo l'avvio - cutoff: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss})");
+                    
                     var success = await ProcessEmail(message);
+                    if (success)
+                    {
+                        processedCount++;
+                    }
+                    else
+                    {
+                        unauthorizedCount++;
+                    }
+                    
+                    // Tieni traccia dell'email più recente processata
+                    if (latestEmailTime == null || emailTime > latestEmailTime)
+                    {
+                        latestEmailTime = emailTime;
+                    }
                     
                     if (_deleteAfterPrint && success)
                     {
                         await inbox.AddFlagsAsync(uid, MessageFlags.Deleted, true);
-                        OnLogMessage?.Invoke($"Email eliminata dopo stampa da {message.From.FirstOrDefault()?.Name}");
+                        OnLogMessage?.Invoke($"🗑️ Email eliminata dopo stampa da {message.From.FirstOrDefault()?.Name}");
                     }
                     else
                     {
@@ -1102,20 +1736,92 @@ GitHub: {AppInfo.GitHubUrl}",
                     }
                 }
 
-                if (_deleteAfterPrint && uids.Count > 0)
+                // Aggiorna il timestamp dell'ultima email processata
+                if (latestEmailTime.HasValue)
+                {
+                    SaveLastProcessedTime(latestEmailTime.Value);
+                    OnLogMessage?.Invoke($"💾 Aggiornato timestamp ultima email processata: {latestEmailTime:dd/MM/yyyy HH:mm:ss}");
+                }
+                
+                if (processedCount == 0)
+                {
+                    if (skippedCount > 0)
+                    {
+                        OnLogMessage?.Invoke($"📭 Nessuna nuova email da processare ({skippedCount} email saltate - già presenti all'avvio)");
+                    }
+                    else
+                    {
+                        OnLogMessage?.Invoke($"📭 Nessuna email trovata nell'inbox");
+                    }
+                }
+                else
+                {
+                    OnLogMessage?.Invoke($"✅ Processate {processedCount} nuove email");
+                }
+
+                if (unauthorizedCount > 0)
+                {
+                    OnLogMessage?.Invoke($"🚫 Trovate {unauthorizedCount} nuove email da mittenti non sicuri, ignorate");
+                }
+
+                if (_deleteAfterPrint && processedCount > 0)
                 {
                     await inbox.ExpungeAsync();
                 }
             }
             catch (Exception ex)
             {
-                OnLogMessage?.Invoke($"Errore processamento email: {ex.Message}");
+                OnLogMessage?.Invoke($"❌ Errore processamento email: {ex.Message}");
+                
+                // Se la connessione IMAP è persa, prova a riconnettersi
+                if (ex.Message.Contains("not connected") || ex.Message.Contains("disconnected"))
+                {
+                    OnLogMessage?.Invoke("🔄 Tentativo di riconnessione IMAP...");
+                    try
+                    {
+                        if (_imapClient?.IsConnected == false)
+                        {
+                            await _imapClient.ConnectAsync(_emailServer, _emailPort, true);
+                            await _imapClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                            OnLogMessage?.Invoke("✅ Riconnessione IMAP riuscita");
+                        }
+                    }
+                    catch (Exception reconnectEx)
+                    {
+                        OnLogMessage?.Invoke($"❌ Riconnessione fallita: {reconnectEx.Message}");
+                    }
+                }
             }
         }
 
         private async Task<bool> ProcessEmail(MimeMessage message)
         {
             var sender = message.From.FirstOrDefault()?.Name ?? message.From.FirstOrDefault()?.ToString() ?? "Sconosciuto";
+            var senderEmail = "";
+            var fromAddress = message.From.FirstOrDefault();
+            if (fromAddress is MailboxAddress mailboxAddress)
+            {
+                senderEmail = mailboxAddress.Address;
+            }
+            
+            // Controllo mittente sicuro se configurato
+            if (!string.IsNullOrEmpty(_secureSender))
+            {
+                var secureSenders = _secureSender.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .ToList();
+                
+                bool isAuthorized = secureSenders.Any(secureSender => 
+                    senderEmail.Equals(secureSender, StringComparison.OrdinalIgnoreCase));
+                
+                if (!isAuthorized)
+                {
+                    OnLogMessage?.Invoke($"📧 Email da {sender} ({senderEmail}) ignorata - mittente non autorizzato");
+                    return false;
+                }
+                OnLogMessage?.Invoke($"✅ Email da mittente sicuro: {sender} ({senderEmail})");
+            }
+            
             OnLogMessage?.Invoke($"Email ricevuta da: {sender}");
 
             var pdfAttachments = message.Attachments
@@ -1189,7 +1895,7 @@ GitHub: {AppInfo.GitHubUrl}",
         {
             try
             {
-                using (var document = PdfReader.Open(filePath, PdfDocumentOpenMode.ReadOnly))
+                using (var document = PdfReader.Open(filePath, PdfDocumentOpenMode.Import))
                 {
                     return document.PageCount > 0;
                 }
@@ -1217,10 +1923,6 @@ GitHub: {AppInfo.GitHubUrl}",
             {
                 await Task.Run(() => PrintPdfDirect(filePath, _printerName));
                 OnLogMessage?.Invoke($"Stampato: {Path.GetFileName(filePath)} da {sender}");
-
-                var logPath = Path.Combine(_tempFolder, "print_log.txt");
-                var logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - Stampato '{Path.GetFileName(filePath)}' da {sender}";
-                File.AppendAllText(logPath, logEntry + Environment.NewLine);
             }
             catch (Exception ex)
             {
@@ -1232,8 +1934,31 @@ GitHub: {AppInfo.GitHubUrl}",
         {
             try
             {
-                // Metodo semplificato per stampare PDF
-                var psi = new ProcessStartInfo
+                // Prova prima SumatraPDF se disponibile
+                var sumatraPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "SumatraPDF.exe");
+                if (File.Exists(sumatraPath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = sumatraPath,
+                        Arguments = $"-print-to \"{printerName}\" \"{filePath}\"",
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        UseShellExecute = false
+                    };
+
+                    using (var process = Process.Start(psi))
+                    {
+                        process?.WaitForExit(30000);
+                        if (process?.ExitCode == 0)
+                        {
+                            return; // Stampa riuscita
+                        }
+                    }
+                }
+
+                // Fallback: usa il metodo Windows Shell
+                var shellPsi = new ProcessStartInfo
                 {
                     FileName = filePath,
                     Verb = "print",
@@ -1242,7 +1967,7 @@ GitHub: {AppInfo.GitHubUrl}",
                     UseShellExecute = true
                 };
 
-                using (var process = Process.Start(psi))
+                using (var process = Process.Start(shellPsi))
                 {
                     process?.WaitForExit(30000);
                 }
@@ -1289,23 +2014,143 @@ Sistema di Stampa Automatica
             }
         }
 
+        public async Task ResetLastProcessedTime()
+        {
+            try
+            {
+                OnLogMessage?.Invoke("⏰ Reset timestamp richiesto - leggendo ultima email presente...");
+                
+                var tempClient = new ImapClient();
+                await tempClient.ConnectAsync(_emailServer, _emailPort, true);
+                await tempClient.AuthenticateAsync(_emailUsername, _emailPassword);
+                
+                var inbox = tempClient.Inbox;
+                await inbox.OpenAsync(FolderAccess.ReadWrite);
+                
+                if (inbox.Count > 0)
+                {
+                    var lastMessage = await inbox.GetMessageAsync(inbox.Count - 1);
+                    _lastProcessedTime = lastMessage.Date.DateTime;
+                    SaveLastProcessedTime(_lastProcessedTime);
+                    OnLogMessage?.Invoke($"⏰ Timestamp resettato all'ultima email presente: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+                }
+                else
+                {
+                    _lastProcessedTime = DateTime.Now;
+                    SaveLastProcessedTime(_lastProcessedTime);
+                    OnLogMessage?.Invoke($"⏰ Inbox vuota - timestamp resettato a: {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+                }
+                
+                await tempClient.DisconnectAsync(true);
+                tempClient.Dispose();
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"❌ Errore nel reset timestamp: {ex.Message}");
+                // Fallback: usa ora
+                _lastProcessedTime = DateTime.Now;
+                SaveLastProcessedTime(_lastProcessedTime);
+                OnLogMessage?.Invoke($"⏰ Timestamp resettato a ora (fallback): {_lastProcessedTime:dd/MM/yyyy HH:mm:ss}");
+            }
+        }
+
+        public DateTime GetLastProcessedTime()
+        {
+            return _lastProcessedTime;
+        }
+
+        private void CleanupResources()
+        {
+            try
+            {
+                if (_imapClient?.IsConnected == true)
+                {
+                    _imapClient.Disconnect(true);
+                    OnLogMessage?.Invoke("📧 Disconnesso IMAP");
+                }
+                _imapClient?.Dispose();
+                _imapClient = null;
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"⚠️ Errore disconnessione IMAP: {ex.Message}");
+            }
+
+            try
+            {
+                if (_smtpClient?.IsConnected == true)
+                {
+                    _smtpClient.Disconnect(true);
+                    OnLogMessage?.Invoke("📤 Disconnesso SMTP");
+                }
+                _smtpClient?.Dispose();
+                _smtpClient = null;
+            }
+            catch (Exception ex)
+            {
+                OnLogMessage?.Invoke($"⚠️ Errore disconnessione SMTP: {ex.Message}");
+            }
+
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+            
+            OnLogMessage?.Invoke("✅ Cleanup completato");
+        }
+
         public void Stop()
         {
+            OnLogMessage?.Invoke("🛑 Arresto servizio richiesto...");
+            
             _isRunning = false;
-            _imapClient?.Disconnect(true);
-            _smtpClient?.Disconnect(true);
+            
+            // Cancella il token per interrompere il loop immediatamente
+            _cancellationTokenSource?.Cancel();
+            
             OnStatusChanged?.Invoke("Servizio fermo", false);
+            OnLogMessage?.Invoke("🛑 Servizio fermato");
+            
+            // Il cleanup verrà fatto nel finally di StartAsync
         }
     }
 
     static class Program
     {
+        private static Mutex _mutex = null;
+        
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            const string mutexName = "EmailPrintService_SingleInstance";
+            bool createdNew;
+            
+            _mutex = new Mutex(true, mutexName, out createdNew);
+            
+            if (!createdNew)
+            {
+                // L'applicazione è già in esecuzione
+                MessageBox.Show("Email Print Service è già in esecuzione!", 
+                              "Applicazione già attiva", 
+                              MessageBoxButtons.OK, 
+                              MessageBoxIcon.Information);
+                return;
+            }
+            
+            try
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                var form = new MainForm();
+                Application.Run(form);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Errore avvio applicazione: {ex.Message}", "Errore", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                _mutex?.ReleaseMutex();
+                _mutex?.Dispose();
+            }
         }
     }
 }

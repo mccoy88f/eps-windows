@@ -5,7 +5,7 @@
 [![.NET Framework](https://img.shields.io/badge/.NET%20Framework-6.0+-blue.svg)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-brightgreen.svg)](https://github.com/mccoy88f/email-print-service/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.1-brightgreen.svg)](https://github.com/mccoy88f/eps-windows/releases)
 
 > **Transform your email-to-print workflow!** Automatically receive emails with PDF attachments and print them silently on your network printer. Perfect for offices, remote printing, and automated document processing.
 
@@ -33,6 +33,9 @@
 - ✅ **Manual email checking** - force immediate processing
 - ✅ **Configurable intervals** (5-300 seconds)
 - ✅ **Service restart** and monitoring controls
+- ✅ **Single instance protection** - prevents multiple app instances
+- ✅ **Resizable rectangular layout** - modern 3-block design
+- ✅ **Secure sender filtering** - process only authorized email addresses
 
 ### 🔒 **Enterprise Ready**
 - ✅ **No admin rights required** - runs in user space
@@ -59,17 +62,24 @@
 ## 🚀 **Quick Start**
 
 ### **For End Users (Pre-built Release):**
-1. **Download** the latest release from [Releases](https://github.com/mccoy88f/email-print-service/releases)
+1. **Download** the latest release from [Releases](https://github.com/mccoy88f/eps-windows/releases)
 2. **Extract** to any folder (e.g., `C:\EmailPrintService\`)
 3. **Optional**: Add `SumatraPDF.exe` to the same folder for best PDF compatibility
 4. **Run** `EmailPrintService.exe`
 5. **Configure** email and printer settings
 6. **Start service** and enjoy automated printing!
 
+### **🎨 New Interface Features (v1.0.1)**
+- **📐 Resizable rectangular layout** - Modern 3-block design
+- **🔒 Secure sender filtering** - Process only authorized emails
+- **🛡️ Single instance protection** - Prevents multiple app instances
+- **📋 Improved menu system** - Better tray icon functionality
+- **⚙️ Enhanced options layout** - All controls properly visible
+
 ### **For Developers:**
 ```bash
 git clone https://github.com/mccoy88f/eps-windows.git
-cd email-print-service
+cd eps-windows
 dotnet build -c Release
 ```
 
@@ -86,7 +96,7 @@ dotnet build -c Release
 ```bash
 # Clone repository
 git clone https://github.com/mccoy88f/eps-windows.git
-cd email-print-service
+cd eps-windows
 
 # Restore NuGet packages
 dotnet restore
@@ -196,6 +206,13 @@ For maximum PDF compatibility:
 2. **Rename** to `SumatraPDF.exe`
 3. **Copy** to same folder as `EmailPrintService.exe`
 4. **Restart** the service
+
+### **4. Secure Sender Configuration (New!)**
+To process only emails from specific senders:
+1. **Enter email addresses** in "Mittente sicuro" field
+2. **Multiple addresses** can be separated by semicolons
+3. **Example**: `sender1@company.com;sender2@company.com`
+4. **Leave empty** to process all incoming emails
 
 ---
 
@@ -430,15 +447,15 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 If this project helped you, please consider giving it a ⭐!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=mccoy88f/email-print-service&type=Date)](https://star-history.com/#mccoy88f/email-print-service&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=mccoy88f/eps-windows&type=Date)](https://star-history.com/#mccoy88f/eps-windows&Date)
 
 ---
 
 ## 📧 **Support & Contact**
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/mccoy88f/email-print-service/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/mccoy88f/email-print-service/discussions)
-- 📖 **Documentation**: [Wiki](https://github.com/mccoy88f/email-print-service/wiki)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/mccoy88f/eps-windows/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/mccoy88f/eps-windows/discussions)
+- 📖 **Documentation**: [Wiki](https://github.com/mccoy88f/eps-windows/wiki)
 - 💬 **Community**: [Discord Server](https://discord.gg/email-print-service)
 
 ---
@@ -468,6 +485,8 @@ If this project helped you, please consider giving it a ⭐!
 <div align="center">
 
 **Made with ❤️ for the automation community**
+
+Thanks for the icon to: https://icon-icons.com/it/icona/stampante-stampa/78349
 
 [![GitHub](https://img.shields.io/badge/GitHub-mccoy88f-blue?logo=github)](https://github.com/mccoy88f)
 [![.NET](https://img.shields.io/badge/.NET-6.0+-purple?logo=.net)](https://dotnet.microsoft.com/)
