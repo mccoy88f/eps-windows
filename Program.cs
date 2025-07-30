@@ -10,7 +10,10 @@ using MailKit.Net.Imap;
 using MailKit.Net.Smtp;
 using MailKit;
 using MailKit.Search;
+<<<<<<< HEAD
 using MailKit.Security;
+=======
+>>>>>>> 5e93b4eaa1769de23f32af39fa5ccab959c05859
 using MimeKit;
 using System.Linq;
 using System.Threading;
