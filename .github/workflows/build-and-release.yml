@@ -1,0 +1,126 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # Permette di eseguire manualmente
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Publish
+      run: dotnet publish --configuration Release --output ./publish --no-build --self-contained --runtime win-x64
+      
+    - name: Create release package
+      run: |
+        $version = "1.0.1"
+        $packageName = "EmailPrintService-v$version-win-x64.zip"
+        
+        # Crea il package ZIP
+        Compress-Archive -Path "./publish/*" -DestinationPath "./$packageName" -Force
+        
+        # Crea anche un package con solo i file essenziali
+        $essentialFiles = @(
+          "EmailPrintService.exe",
+          "EmailPrintService.dll",
+          "EmailPrintService.deps.json",
+          "EmailPrintService.runtimeconfig.json",
+          "app.ico",
+          "*.dll"
+        )
+        
+        $essentialPackageName = "EmailPrintService-v$version-essential-win-x64.zip"
+        $tempDir = "temp-essential"
+        
+        if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $tempDir | Out-Null
+        
+        # Copia solo i file essenziali
+        Copy-Item "app.ico" $tempDir/
+        Get-ChildItem "./publish" -Include $essentialFiles | Copy-Item -Destination $tempDir/
+        
+        Compress-Archive -Path "$tempDir/*" -DestinationPath "./$essentialPackageName" -Force
+        Remove-Item $tempDir -Recurse -Force
+        
+        echo "Package created: $packageName"
+        echo "Essential package created: $essentialPackageName"
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: EmailPrintService-Release
+        path: |
+          EmailPrintService-v*.zip
+        retention-days: 30
+        
+    - name: Create Release
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: EmailPrintService-v*.zip
+        tag_name: v1.0.1
+        name: Release v1.0.1
+        body: |
+          ## Email Print Service v1.0.1
+          
+          ### 🚀 Nuove funzionalità
+          - ✅ Interfaccia ridisegnata con layout rettangolare
+          - ✅ Protezione istanza singola
+          - ✅ Filtro mittente sicuro (multi-email support)
+          - ✅ Fix threading per controllo manuale
+          - ✅ Log su file singolo con pulizia automatica
+          - ✅ Icona personalizzata per app e tray
+          
+          ### 🔧 Miglioramenti
+          - ✅ Risolto blocco UI dopo avvio servizio
+          - ✅ Controllo manuale email non si blocca più
+          - ✅ Servizio rimane attivo correttamente
+          - ✅ Cleanup risorse migliorato
+          
+          ### 📦 Contenuto
+          - **EmailPrintService-v1.0.1-win-x64.zip**: Package completo con tutte le dipendenze
+          - **EmailPrintService-v1.0.1-essential-win-x64.zip**: Package essenziale con solo i file necessari
+          
+          ### 🖥️ Requisiti
+          - Windows 10/11
+          - .NET 9.0 Runtime (incluso nel package completo)
+          
+          ### 📋 Installazione
+          1. Scarica il package ZIP
+          2. Estrai in una cartella
+          3. Esegui `EmailPrintService.exe`
+          4. Configura le impostazioni email
+          5. Avvia il servizio
+          
+          ### 🔗 Link utili
+          - [Documentazione](https://github.com/mccoy88f/eps-windows#readme)
+          - [Issues](https://github.com/mccoy88f/eps-windows/issues)
+          - [Discussions](https://github.com/mccoy88f/eps-windows/discussions)
+          
+          ### 👨‍💻 Sviluppatore
+          **Antonello Migliorelli** - [@mccoy88f](https://github.com/mccoy88f)
+          
+          ---
+          *Build automatico generato il ${{ github.event.head_commit.timestamp }}*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

@@ -85,6 +85,39 @@ dotnet build -c Release
 
 ---
 
+## 🤖 **Automated Build & Release**
+
+### **GitHub Actions**
+This project uses automated GitHub Actions for continuous integration and deployment:
+
+- **🔄 Build & Release**: Automatically builds and creates release packages on every push to `main`
+- **📦 Package Creation**: Generates two ZIP packages:
+  - **Complete Package**: Full application with all dependencies
+  - **Essential Package**: Minimal files for users with .NET Runtime installed
+- **🏷️ Version Management**: Automatic version updates when creating Git tags
+- **📋 Release Notes**: Auto-generated release notes with changelog
+
+### **Creating a New Release**
+```bash
+# 1. Update version in Program.cs
+# 2. Commit and push changes
+git add .
+git commit -m "Prepare release v1.0.2"
+git push
+
+# 3. Create and push a tag (triggers automatic release)
+git tag v1.0.2
+git push origin v1.0.2
+```
+
+### **Manual Release Trigger**
+You can also trigger a build manually:
+1. Go to [Actions](https://github.com/mccoy88f/eps-windows/actions)
+2. Select "Build and Release" workflow
+3. Click "Run workflow" → "Run workflow"
+
+---
+
 ## 🛠️ **Development Setup**
 
 ### **Prerequisites**

@@ -1,0 +1,46 @@
+name: Version Updater
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  update-version:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Extract version from tag
+      id: version
+      run: |
+        $tag = "${{ github.ref_name }}"
+        $version = $tag.Substring(1) # Rimuove la 'v' dal tag
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "Extracted version: $version"
+        
+    - name: Update version in files
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        
+        # Aggiorna la versione in Program.cs
+        $programContent = Get-Content "Program.cs" -Raw
+        $programContent = $programContent -replace 'public const string Version = "([^"]*)"', "public const string Version = `"$version`""
+        Set-Content "Program.cs" $programContent -NoNewline
+        
+        # Aggiorna la versione nel README.md
+        $readmeContent = Get-Content "README.md" -Raw
+        $readmeContent = $readmeContent -replace 'Release.*?v[0-9]+\.[0-9]+\.[0-9]+', "Release](https://github.com/mccoy88f/eps-windows/releases/tag/v$version)"
+        Set-Content "README.md" $readmeContent -NoNewline
+        
+        echo "Updated version to $version in Program.cs and README.md"
+        
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add Program.cs README.md
+        git commit -m "Update version to ${{ steps.version.outputs.version }}"
+        git push 
