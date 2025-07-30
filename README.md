@@ -94,7 +94,7 @@ This project uses automated GitHub Actions for continuous integration and deploy
 - **📦 Package Creation**: Generates two ZIP packages:
   - **Complete Package**: Full application with all dependencies
   - **Essential Package**: Minimal files for users with .NET Runtime installed
-- **🏷️ Version Management**: Automatic version updates when creating Git tags
+- **🏷️ Version Management**: Automatic version extraction from code
 - **📋 Release Notes**: Auto-generated release notes with changelog
 
 ### **Creating a New Release**
@@ -105,9 +105,8 @@ git add .
 git commit -m "Prepare release v1.0.2"
 git push
 
-# 3. Create and push a tag (triggers automatic release)
-git tag v1.0.2
-git push origin v1.0.2
+# 3. The GitHub Action will automatically create a release
+#    based on the version in Program.cs
 ```
 
 ### **Manual Release Trigger**

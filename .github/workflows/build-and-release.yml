@@ -29,9 +29,22 @@ jobs:
     - name: Publish
       run: dotnet publish --configuration Release --output ./publish --no-build --self-contained --runtime win-x64
       
+    - name: Extract version from code
+      id: version
+      run: |
+        # Estrai la versione da Program.cs
+        $content = Get-Content "Program.cs" -Raw
+        if ($content -match 'public const string Version = "([^"]*)"') {
+          $version = $matches[1]
+        } else {
+          $version = "1.0.1"  # Fallback
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+        echo "Extracted version: $version"
+        
     - name: Create release package
       run: |
-        $version = "1.0.1"
+        $version = "${{ steps.version.outputs.version }}"
         $packageName = "EmailPrintService-v$version-win-x64.zip"
         
         # Crea il package ZIP
@@ -76,10 +89,10 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: EmailPrintService-v*.zip
-        tag_name: v1.0.1
-        name: Release v1.0.1
+        tag_name: v${{ steps.version.outputs.version }}
+        name: Release v${{ steps.version.outputs.version }}
         body: |
-          ## Email Print Service v1.0.1
+          ## Email Print Service v${{ steps.version.outputs.version }}
           
           ### 🚀 Nuove funzionalità
           - ✅ Interfaccia ridisegnata con layout rettangolare
@@ -96,8 +109,8 @@ jobs:
           - ✅ Cleanup risorse migliorato
           
           ### 📦 Contenuto
-          - **EmailPrintService-v1.0.1-win-x64.zip**: Package completo con tutte le dipendenze
-          - **EmailPrintService-v1.0.1-essential-win-x64.zip**: Package essenziale con solo i file necessari
+          - **EmailPrintService-v${{ steps.version.outputs.version }}-win-x64.zip**: Package completo con tutte le dipendenze
+          - **EmailPrintService-v${{ steps.version.outputs.version }}-essential-win-x64.zip**: Package essenziale con solo i file necessari
           
           ### 🖥️ Requisiti
           - Windows 10/11
